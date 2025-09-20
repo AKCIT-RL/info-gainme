@@ -1,0 +1,26 @@
+# __pycache__
+__pycache__/
+
+# .env
+.env
+
+# .DS_Store
+.DS_Store
+
+# .pytest_cache
+.pytest_cache/
+
+# Data
+data/
+
+# Output
+output/
+
+# Logs
+logs/
+
+# Deprecated
+deprecated/
+
+# egg-info
+*egg-info/

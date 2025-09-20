@@ -1,0 +1,40 @@
+---
+description: 
+globs:
+alwaysApply: true
+---
+
+## Estrutura de pastas (projeto)
+```
+src/
+  benchmark/
+    graph.py      # KnowledgeGraph, Node, Edge
+    entropy.py    # Entropy
+    types.py      # TurnState, PruningResult, ObservabilityMode
+    runner.py     # BenchmarkRunner
+    agents/
+      seeker.py   # SeekerAgent
+      oracle.py   # OracleAgent
+      pruner.py   # PrunerAgent
+      llm_adapter.py  # LLMAdapter (OpenAI/vLLM-OpenAI) + history
+  domain/
+    geo/
+      loader.py   # Loader do grafo geográfico
+
+scripts/
+  run_benchmark.py
+
+data/    # entradas
+outputs/ # artefatos
+```
+
+## Diretrizes LLMAdapter
+- Integrar diretamente com a lib OpenAI (API geral ou vLLM-OpenAI).
+- Manter apenas estado `history` e utilitários (`append_history`, `reset_history`).
+- Evitar criar métodos desnecessários: reutilizar as primitivas da API OpenAI.
+- Cada agente possui sua própria instância stateful de `LLMAdapter`.
+
+## Convenções de nomenclatura
+- Usar snake_case para métodos, atributos e variáveis.
+- Classes mantêm PascalCase (ex: `KnowledgeGraph`, `SeekerAgent`).
+- Enums mantêm UPPER_CASE (ex: `FULLY_OBSERVED`).
