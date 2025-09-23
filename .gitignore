@@ -24,3 +24,6 @@ deprecated/
 
 # egg-info
 *egg-info/
+
+.conda/
+.cursor/
