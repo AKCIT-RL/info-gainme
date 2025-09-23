@@ -55,6 +55,11 @@ def get_oracle_system_prompt() -> str:
     return load_prompt("oracle_system")
 
 
+def get_pruner_system_prompt() -> str:
+    """Get the PrunerAgent system prompt."""
+    return load_prompt("pruner_system")
+
+
 def clear_cache() -> None:
     """Clear the prompt cache. Useful for testing or reloading prompts."""
     _PROMPT_CACHE.clear()
@@ -64,6 +69,7 @@ __all__ = [
     "load_prompt",
     "get_seeker_system_prompt", 
     "get_oracle_system_prompt",
+    "get_pruner_system_prompt",
     "clear_cache",
 ]
 
