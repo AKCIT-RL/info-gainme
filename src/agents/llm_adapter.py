@@ -22,9 +22,6 @@ import os
 
 load_dotenv()
 
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-
-
 Role = Literal["system", "user", "assistant"]
 
 @dataclass(slots=True)
@@ -74,10 +71,14 @@ class LLMAdapter:
 
     def __init__(
         self, 
-        config: Optional[LLMConfig] = None
+        config: Optional[LLMConfig] = None,
+        save_history: bool = True
         ) -> None:
-        self._config: LLMConfig = config if config is not None else LLMConfig(model="gpt-4o-mini", api_key=OPENAI_API_KEY)
-        self._history: list[dict[str, str]] = []
+        self._config: LLMConfig = config
+        self._history: list[dict[str, str]] = [] if save_history else None
+        self._save_history = save_history
+
+        assert self._config.api_key is not None if not self._config.base_url else True, "Both api_key and base_url cannot be None"
 
     # --- History management (Pythonic) ---
     def append_history(self, role: Role, text: str) -> None:
@@ -90,6 +91,7 @@ class LLMAdapter:
         Raises:
             ValueError: If `role` is invalid or `text` is empty.
         """
+        assert self._save_history, "Trying to append history but save_history is False"
         if role not in ("system", "user", "assistant"):
             raise ValueError(f"Invalid role: {role}")
         if not text:
@@ -115,9 +117,9 @@ class LLMAdapter:
     # --- Core generation ---
     def generate(
         self,
+        add_to_history: Optional[bool] = None,
         messages: Optional[list[dict[str, str]]] = None,
         *,
-        add_to_history: bool = True,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         extra: Optional[dict[str, Any]] = None,
@@ -138,7 +140,14 @@ class LLMAdapter:
             LLMAdapterError: On client import or API errors.
             ValueError: If there are no messages to send.
         """
+        if add_to_history is None:
+            add_to_history = self._save_history
+
+        if add_to_history and not self._save_history:
+            raise ValueError("Trying to add to history but save_history is False")
+
         payload_messages = messages if messages is not None else self._history
+        
         if not payload_messages:
             raise ValueError("No messages to send. Provide `messages` or add history.")
 

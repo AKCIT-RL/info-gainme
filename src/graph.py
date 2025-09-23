@@ -8,8 +8,11 @@ active nodes and to apply pruning operations.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Iterable, Set, Optional
+from typing import Any, Iterable, Set, Optional
 from types import MappingProxyType
+import networkx as nx
+import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 
 
 @dataclass(frozen=True)
@@ -72,6 +75,84 @@ class KnowledgeGraph:
             return
         self.pruned_ids.update(pruned)
 
+    def graph_to_text(self) -> str:
+        """Convert the active portion of the graph into a compact text format.
+
+        The representation groups nodes by their semantic "type" (e.g., region,
+        subregion, country, state, city) and lists active relations among active
+        nodes. This is intended for LLM prompts where a concise, deterministic
+        view of the current graph state is useful.
+
+        Returns:
+            A multi-line string describing active nodes and relations.
+        """
+        # Active scope
+        active_ids = {n.id for n in self.get_active_nodes()}
+        active_nodes = [n for n in self.nodes if n.id in active_ids]
+
+        # Indexes for quick lookup
+        id_to_node = {n.id: n for n in active_nodes}
+        active_edges = [
+            e for e in self.edges if e.source_id in active_ids and e.target_id in active_ids
+        ]
+
+        # Group nodes by type and sort deterministically
+        type_to_nodes: dict[str, list[Node]] = {}
+        for node in active_nodes:
+            node_type = str(node.attrs.get("type", "unknown")).lower()
+            type_to_nodes.setdefault(node_type, []).append(node)
+
+        def sort_key(n: Node) -> tuple[int, str, str]:
+            layer = int(node.attrs.get("layer", 0)) if (node := n) else 0  # safeguard
+            return (layer, str(n.attrs.get("type", "")), n.label)
+
+        for nodes in type_to_nodes.values():
+            nodes.sort(key=sort_key)
+
+        # Preferred order for geographic graphs
+        preferred_order = ["region", "subregion", "country", "state", "city"]
+        other_types = sorted(t for t in type_to_nodes.keys() if t not in preferred_order)
+        ordered_types = [t for t in preferred_order if t in type_to_nodes] + other_types
+
+        lines: list[str] = []
+        lines.append("Knowledge Graph (active)")
+        lines.append(
+            f"Nodes: {len(active_nodes)} | Edges: {len(active_edges)} | Pruned: {len(self.pruned_ids)}"
+        )
+
+        # Nodes by type
+        for t in ordered_types:
+            lines.append(f"\n[{t}] ({len(type_to_nodes[t])})")
+            for n in type_to_nodes[t]:
+                lines.append(f"- {n.label} [{n.id}]")
+
+        # Relations (trim long lists to keep prompts compact)
+        if active_edges:
+            lines.append("\n[relations]")
+            # Deterministic sort: relation, source label, target label
+            def edge_sort_key(e: Edge) -> tuple[str, str, str]:
+                s_label = id_to_node.get(e.source_id).label if e.source_id in id_to_node else e.source_id
+                t_label = id_to_node.get(e.target_id).label if e.target_id in id_to_node else e.target_id
+                return (e.relation, s_label, t_label)
+
+            active_edges_sorted = sorted(active_edges, key=edge_sort_key)
+            max_lines = 200
+            shown = 0
+            for e in active_edges_sorted:
+                if e.source_id not in id_to_node or e.target_id not in id_to_node:
+                    continue
+                s_label = id_to_node[e.source_id].label
+                t_label = id_to_node[e.target_id].label
+                lines.append(f"- {s_label} --{e.relation}--> {t_label}")
+                shown += 1
+                if shown >= max_lines:
+                    remaining = len(active_edges_sorted) - shown
+                    if remaining > 0:
+                        lines.append(f"... and {remaining} more")
+                    break
+
+        return "\n".join(lines)
+
     def plot(
         self,
         output_path: Optional[str] = None,
@@ -93,14 +174,6 @@ class KnowledgeGraph:
         Raises:
             ImportError: If networkx or matplotlib are not available.
         """
-        try:
-            import networkx as nx
-            import matplotlib.pyplot as plt
-        except ImportError as exc:
-            raise ImportError(
-                "Plotting requires networkx and matplotlib. "
-                "Install with: pip install networkx matplotlib"
-            ) from exc
 
         # Create directed graph
         G = nx.DiGraph()
@@ -124,32 +197,72 @@ class KnowledgeGraph:
         # Create plot
         fig, ax = plt.subplots(figsize=figsize)
 
-        # Use hierarchical layout if possible, fallback to spring layout
+        # Use multipartite layout based on node layers (like the original notebook)
         try:
-            pos = nx.nx_agraph.graphviz_layout(G, prog="dot")
-        except (ImportError, Exception):
-            try:
-                pos = nx.spring_layout(G, k=1, iterations=50)
-            except Exception:
-                pos = nx.random_layout(G)
+            # Extract layer information from node attributes
+            layers = {}
+            for node in self.nodes:
+                if node.id in G.nodes():
+                    layer = node.attrs.get("layer", 0)
+                    layers[node.id] = layer
+            
+            # Set subset attribute for multipartite layout
+            for node_id in G.nodes():
+                if node_id in layers:
+                    G.nodes[node_id]["subset"] = layers[node_id]
+                else:
+                    G.nodes[node_id]["subset"] = 0
+            
+            # Use multipartite layout (like the original notebook)
+            pos = nx.multipartite_layout(G, subset_key="subset", scale=3.0, align="vertical")
+            
+        except Exception:
+            # Fallback to spring layout if multipartite fails
+            pos = nx.spring_layout(G, k=1, iterations=50)
 
-        # Color nodes based on status
+        # Color nodes based on type (like the original notebook)
+        color_map = {
+            "region": "#e41a1c",      # Red
+            "subregion": "#ff7f00",    # Orange  
+            "country": "#ffff33",      # Yellow
+            "state": "#4daf4a",        # Green
+            "city": "#377eb8",         # Blue
+        }
+        
         node_colors = []
         for node_id in G.nodes():
             if G.nodes[node_id].get("active", True):
-                node_colors.append("lightblue")
+                # Get node type from original node
+                node_type = "unknown"
+                for node in self.nodes:
+                    if node.id == node_id:
+                        node_type = node.attrs.get("type", "unknown")
+                        break
+                node_colors.append(color_map.get(node_type, "#999999"))
             else:
-                node_colors.append("lightcoral")
+                node_colors.append("lightcoral")  # Pruned nodes
 
-        # Draw the graph
+        # Draw edges first (more subtle, like the original)
+        nx.draw_networkx_edges(G, pos, alpha=0.15, width=0.6, edge_color="#777777", ax=ax)
+        
+        # Draw nodes
         nx.draw_networkx_nodes(
-            G, pos, node_color=node_colors, node_size=node_size, ax=ax
+            G, pos, node_color=node_colors, node_size=20, 
+            linewidths=0.2, edgecolors="#333333", ax=ax
         )
-        nx.draw_networkx_edges(G, pos, edge_color="gray", arrows=True, ax=ax)
 
-        # Add labels
-        labels = {node_id: G.nodes[node_id]["label"] for node_id in G.nodes()}
-        nx.draw_networkx_labels(G, pos, labels, font_size=8, ax=ax)
+        # Add labels (only for non-city nodes, like the original)
+        labels = {}
+        for node_id in G.nodes():
+            node_type = "unknown"
+            for node in self.nodes:
+                if node.id == node_id:
+                    node_type = node.attrs.get("type", "unknown")
+                    break
+            if node_type in {"region", "subregion", "country", "state"}:
+                labels[node_id] = G.nodes[node_id]["label"]
+        
+        nx.draw_networkx_labels(G, pos, labels, font_size=6, ax=ax)
 
         # Add edge labels
         edge_labels = nx.get_edge_attributes(G, "relation")
@@ -158,14 +271,11 @@ class KnowledgeGraph:
         ax.set_title(title)
         ax.axis("off")
 
-        # Legend
-        if show_pruned and self.pruned_ids:
-            from matplotlib.patches import Patch
-            legend_elements = [
-                Patch(facecolor="lightblue", label="Active nodes"),
-                Patch(facecolor="lightcoral", label="Pruned nodes"),
-            ]
-            ax.legend(handles=legend_elements, loc="upper right")
+        legend_elements = [
+            Line2D([0], [0], marker='o', color='w', label=k, markerfacecolor=v, markersize=6)
+            for k, v in color_map.items()
+        ]
+        ax.legend(handles=legend_elements, loc='lower left', ncol=5, frameon=False)
 
         plt.tight_layout()
 
@@ -205,6 +315,7 @@ if __name__ == "__main__":
         assert {n.id for n in kg.get_active_nodes()} == {"A", "C"}
 
     def _test_plot() -> None:
+        print("Testing plot...")
         kg = _build_sample_graph()
         kg.apply_pruning({"B"})
         
@@ -217,8 +328,15 @@ if __name__ == "__main__":
         except Exception as e:
             print(f"Plot test: WARNING ({e})")
 
+    def _test_graph_to_text() -> None:
+        print("Testing graph to text...")
+        kg = _build_sample_graph()
+        text = kg.graph_to_text()
+        print(text)
+
     _test_active_and_pruning()
     _test_plot()
+    _test_graph_to_text()
     print("KnowledgeGraph self-tests: OK")
 
 

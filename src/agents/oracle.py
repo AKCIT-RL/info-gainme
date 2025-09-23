@@ -13,6 +13,7 @@ from ..data_types import Answer, Question
 from ..graph import Node
 from ..prompts import get_oracle_system_prompt
 from .llm_adapter import LLMAdapter
+from ..utils.utils import parse_first_json_object
 
 
 class OracleAgent:
@@ -25,7 +26,6 @@ class OracleAgent:
 
     def __init__(
         self, 
-        model: str, 
         llm_adapter: LLMAdapter, 
         target_node_id: str,
         *,
@@ -42,14 +42,12 @@ class OracleAgent:
         Raises:
             ValueError: If any parameter is invalid.
         """
-        if not model:
-            raise ValueError("Model identifier cannot be empty")
         if llm_adapter is None:
             raise ValueError("LLMAdapter cannot be None")
         if not target_node_id:
             raise ValueError("Target node ID cannot be empty")
             
-        self._model = model
+        self._model = llm_adapter.config.model
         self._llm_adapter = llm_adapter
         self._target_node_id = target_node_id
         self._answers_given = 0
@@ -87,17 +85,23 @@ class OracleAgent:
         """Generate an answer to the Seeker's question.
         
         Returns:
-            Answer object with response text and compliance flag.
+            Answer object with response text, compliance flag, and game_over flag.
             
         Note:
-            The Oracle must answer truthfully but cannot reveal the target directly.
-            It should respond with simple yes/no answers when possible.
+            The Oracle must answer truthfully and return JSON with answer and game_over status.
         """
-        # Generate answer
-        answer_text = self._llm_adapter.generate(max_tokens=50, temperature=0.1)
+        # Generate answer (expecting JSON response)
+        raw_response = self._llm_adapter.generate(max_tokens=100, temperature=0.1)
         
-        # Note: LLMAdapter.generate() automatically adds the response to history,
-        # so we don't need to manually append it here
+        # Parse JSON response
+        parsed = parse_first_json_object(raw_response)
+        if parsed is None:
+            # Fallback if JSON parsing fails
+            answer_text = raw_response.strip()
+            game_over = False
+        else:
+            answer_text = str(parsed.get("answer", raw_response.strip()))
+            game_over = bool(parsed.get("game_over", False))
         
         # Check compliance (basic heuristic) - get last question from history
         last_question = self._get_last_seeker_question()
@@ -106,7 +110,7 @@ class OracleAgent:
         # Track usage
         self._answers_given += 1
         
-        return Answer(text=answer_text.strip(), compliant=is_compliant)
+        return Answer(text=answer_text, compliant=is_compliant, game_over=game_over)
 
     def _build_system_prompt_with_target(self, target_node: Node = None) -> str:
         """Build system prompt with target information included.
