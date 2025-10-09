@@ -28,10 +28,15 @@ class PrunerAgent:
         """Initialize the PrunerAgent.
         
         Args:
-            llm_adapter: LLM adapter for potential AI-assisted pruning decisions.
+            llm_adapter: LLM adapter for AI-assisted pruning decisions.
         """
         self.llm_adapter = llm_adapter
         self.pruning_count = 0
+        
+        # Add system prompt to history for export (if save_history is enabled)
+        if self.llm_adapter._save_history:
+            system_prompt = get_pruner_system_prompt()
+            self.llm_adapter.append_history("system", system_prompt)
     
     def analyze_and_prune(
         self,
@@ -43,7 +48,7 @@ class PrunerAgent:
         """Delegate pruning decision to the LLM using graph text and turn context.
 
         The LLM must respond with a strict JSON object:
-            {"pruned_ids": ["node:id", ...], "rationale": "..."}
+            {"rationale": "...", "pruned_ids": ["node:id", ...]}
 
         Args:
             graph_text: Textual representation of the active graph (graph_to_text).
@@ -54,6 +59,10 @@ class PrunerAgent:
         Returns:
             PruningResult with pruned node IDs and rationale. Falls back to no
             pruning if parsing fails or the model returns an invalid response.
+            
+        Note:
+            Uses stateless LLM calls (each request is independent) but saves to history
+            for export and analysis purposes.
         """
         system_prompt = get_pruner_system_prompt()
 
@@ -62,15 +71,27 @@ class PrunerAgent:
             f"TURN: {turn_index}\n" +
             f"QUESTION: {question.text}\n" +
             f"ANSWER: {answer.text}\n\n" +
-            "Respond with JSON only: {\"pruned_ids\": [...], \"rationale\": \"...\"}"
+            "Respond with JSON only: {\"rationale\": \"...\", \"pruned_ids\": [...]}"
         )
 
+        # Build stateless messages
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
+        
+        # Save request to history for export
+        if self.llm_adapter._save_history:
+            self.llm_adapter.append_history("user", user_prompt)
 
-        reply = self.llm_adapter.generate(messages=messages, add_to_history=False, temperature=0.0)
+        # Make stateless call (don't use accumulated history)
+        # Note: add_to_history defaults to True, so it will auto-save the response
+        reply = self.llm_adapter.generate(
+            messages=messages, 
+            stateless=True,  # Use only these messages, not history
+            temperature=0.0
+            # add_to_history=True is default, so response is auto-saved
+        )
 
         parsed = parse_first_json_object(reply)
         if parsed is None:

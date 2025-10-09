@@ -2,7 +2,7 @@
 
 ## The Game
 
-You are playing a **geographic guessing game** where your goal is to discover a secret target location through strategic questions.
+You are playing a **geographic guessing game** where your goal is to discover a secret target **city** through strategic questions.
 
 ### Players:
 - **You (Seeker)**: Ask yes/no questions to find the target

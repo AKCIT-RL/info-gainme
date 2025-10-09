@@ -139,6 +139,7 @@ class LLMAdapter:
         add_to_history: Optional[bool] = None,
         messages: Optional[list[dict[str, str]]] = None,
         *,
+        stateless: bool = False,
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         extra: Optional[dict[str, Any]] = None,
@@ -148,6 +149,8 @@ class LLMAdapter:
         Args:
             messages: If provided, use these messages instead of `self.history`.
             add_to_history: If True, append the assistant reply to `self.history`.
+            stateless: If True, use only `messages` for the call but still save to history.
+                      Useful for agents that need history export but stateless inference.
             temperature: Optional override for sampling temperature.
             max_tokens: Optional override for max tokens.
             extra: Optional dict of provider-specific parameters.
@@ -165,7 +168,15 @@ class LLMAdapter:
         if add_to_history and not self._save_history:
             raise ValueError("Trying to add to history but save_history is False")
 
-        payload_messages = messages if messages is not None else self._history
+        # Determine payload messages
+        if stateless:
+            # Stateless mode: use provided messages or raise error
+            if messages is None:
+                raise ValueError("Stateless mode requires explicit 'messages' parameter")
+            payload_messages = messages
+        else:
+            # Normal mode: use messages if provided, otherwise use history
+            payload_messages = messages if messages is not None else self._history
         
         if not payload_messages:
             raise ValueError("No messages to send. Provide `messages` or add history.")
@@ -192,6 +203,24 @@ class LLMAdapter:
             request_kwargs.update(self._config.extra)
         if extra:
             request_kwargs.update(extra)
+
+        # Special handling for gpt-5 models
+        if self._config.model.startswith("gpt-5"):
+            if "max_tokens" in request_kwargs:
+                # request_kwargs["max_completion_tokens"] = request_kwargs["max_tokens"]
+                del request_kwargs["max_tokens"]
+            if "temperature" in request_kwargs:
+                del request_kwargs["temperature"]
+        
+        # Special handling for Gemini models via OpenAI API
+        # Gemini requires at least one user message, not just system
+        if self._config.model.startswith("gemini"):
+            if payload_messages and len(payload_messages) == 1 and payload_messages[0].get("role") == "system":
+                # Convert system-only to system + user pattern
+                system_msg = payload_messages[0]["content"]
+                request_kwargs["messages"] = [
+                    {"role": "user", "content": f"{system_msg}\n\nSTARTING GAME!."}
+                ]
 
         try:
             completion = client.chat.completions.create(**request_kwargs)

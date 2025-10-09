@@ -50,6 +50,7 @@ class OracleAgent:
         self._model = llm_adapter.config.model
         self._llm_adapter = llm_adapter
         self._target_node_id = target_node_id
+        self._target_node = target_node  # Store target node for metadata export
         self._answers_given = 0
         
         # Build system prompt with target information

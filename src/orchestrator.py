@@ -8,6 +8,9 @@ Orchestrates a single game from start to finish.
 from __future__ import annotations
 
 from typing import List, Optional
+from datetime import datetime
+from pathlib import Path
+import json
 
 from .entropy import Entropy
 from .graph import KnowledgeGraph, Node
@@ -110,7 +113,7 @@ class Orchestrator:
         # Create LLM adapters for each agent
         seeker_adapter = LLMAdapter(seeker_config)
         oracle_adapter = LLMAdapter(oracle_config)
-        pruner_adapter = LLMAdapter(pruner_config, save_history=False)
+        pruner_adapter = LLMAdapter(pruner_config, save_history=True)  # Save history but use stateless calls
         
         # Create agents
         seeker = SeekerAgent(
@@ -167,12 +170,17 @@ class Orchestrator:
     def run(self, debug: bool = False) -> None:
         """Execute the benchmark loop.
 
-        Delegates pruning decisions to the configured `PrunerAgent`, which is LLM-driven. Entropy is computed before and after each turn.
+        Delegates pruning decisions to the configured `PrunerAgent`, which is LLM-driven. 
+        Entropy is computed before and after each turn. Timestamps are captured for each turn.
         """
         for turn in range(1, self._max_turns + 1):
             self._current_turn = turn
+            
+            # Start timestamp
+            turn_start = datetime.now()
 
             active_nodes = self._graph.get_active_nodes()
+            active_nodes_before = len(active_nodes)
             h_before = self._entropy.compute(active_nodes)
 
             # Prepare textual graph view and inject once if fully observed
@@ -208,10 +216,14 @@ class Orchestrator:
                 turn=turn,
             )
 
-
             # Compute entropy after pruning
+            active_nodes_after = len(self._graph.get_active_nodes())
             h_after = self._entropy.compute(self._graph.get_active_nodes())
             info_gain = self._entropy.info_gain(h_before, h_after)
+            
+            # End timestamp
+            turn_end = datetime.now()
+            duration = (turn_end - turn_start).total_seconds()
 
             self._turns.append(
                 TurnState(
@@ -222,6 +234,12 @@ class Orchestrator:
                     pruned_count=pruned_count,
                     question=question,
                     answer=answer,
+                    pruning_result=pruning_result,
+                    active_nodes_before=active_nodes_before,
+                    active_nodes_after=active_nodes_after,
+                    timestamp_start=turn_start.isoformat(),
+                    timestamp_end=turn_end.isoformat(),
+                    duration_seconds=round(duration, 6),
                 )
             )
 
@@ -255,5 +273,167 @@ class Orchestrator:
             "h_end": self._turns[-1].h_after if self._turns else None,
             "total_info_gain": sum(t.info_gain for t in self._turns),
         }
+    
+    def export_conversation(self, output_dir: Path) -> None:
+        """Export complete game conversation for all agents.
+        
+        Saves each agent's LLMAdapter.history to separate JSON files,
+        along with game metadata and turn-by-turn details in JSONL format.
+        
+        Args:
+            output_dir: Directory to save conversation files (e.g., game_001_Beijing_city19332/).
+        """
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 1. Save Seeker history
+        if self._seeker._llm_adapter._save_history:
+            seeker_data = {
+                "agent_type": "seeker",
+                "config": {
+                    "model": self._seeker._llm_adapter.config.model,
+                    "temperature": self._seeker._llm_adapter.config.temperature,
+                    "max_tokens": self._seeker._llm_adapter.config.max_tokens,
+                    "base_url": self._seeker._llm_adapter.config.base_url,
+                },
+                "observability_mode": self._seeker.observability_mode.name,
+                "total_messages": len(self._seeker._llm_adapter.history),
+                "history": self._seeker._llm_adapter.history
+            }
+            with (output_dir / "seeker.json").open("w", encoding="utf-8") as f:
+                json.dump(seeker_data, f, indent=2, ensure_ascii=False)
+        
+        # 2. Save Oracle history
+        if self._oracle._llm_adapter._save_history:
+            oracle_data = {
+                "agent_type": "oracle",
+                "config": {
+                    "model": self._oracle._llm_adapter.config.model,
+                    "temperature": self._oracle._llm_adapter.config.temperature,
+                    "max_tokens": self._oracle._llm_adapter.config.max_tokens,
+                    "base_url": self._oracle._llm_adapter.config.base_url,
+                },
+                "target": {
+                    "id": self._oracle._target_node_id,
+                    "label": self._oracle._target_node.label if self._oracle._target_node else None,
+                    "attrs": dict(self._oracle._target_node.attrs) if self._oracle._target_node else {}
+                },
+                "total_messages": len(self._oracle._llm_adapter.history),
+                "history": self._oracle._llm_adapter.history
+            }
+            with (output_dir / "oracle.json").open("w", encoding="utf-8") as f:
+                json.dump(oracle_data, f, indent=2, ensure_ascii=False)
+        
+        # 3. Save Pruner history (or note if disabled)
+        pruner_data = {
+            "agent_type": "pruner",
+            "config": {
+                "model": self._pruner.llm_adapter.config.model,
+                "temperature": self._pruner.llm_adapter.config.temperature,
+                "max_tokens": self._pruner.llm_adapter.config.max_tokens,
+                "base_url": self._pruner.llm_adapter.config.base_url,
+            },
+            "save_history": self._pruner.llm_adapter._save_history,
+            "total_calls": len(self._turns),
+        }
+        
+        if self._pruner.llm_adapter._save_history:
+            pruner_data["total_messages"] = len(self._pruner.llm_adapter.history)
+            pruner_data["history"] = self._pruner.llm_adapter.history
+        else:
+            pruner_data["note"] = "Pruner was configured with save_history=False. No conversation history available."
+            pruner_data["history"] = []
+        
+        with (output_dir / "pruner.json").open("w", encoding="utf-8") as f:
+            json.dump(pruner_data, f, indent=2, ensure_ascii=False)
+        
+        # 4. Save metadata
+        summary = self.get_summary()
+        win = any(t.answer.game_over for t in self._turns)
+        compliance_rate = (
+            sum(1 for t in self._turns if t.answer.compliant) / len(self._turns)
+        ) if self._turns else 0.0
+        
+        total_pruned = sum(t.pruned_count for t in self._turns)
+        initial_nodes = len(self._graph.nodes)
+        final_active = len(self._graph.get_active_nodes())
+        
+        metadata = {
+            "game_id": None,  # Will be set by BenchmarkRunner
+            "timestamp": datetime.now().isoformat(),
+            "target": {
+                "id": self._oracle._target_node_id,
+                "label": self._oracle._target_node.label if self._oracle._target_node else None,
+                "attrs": dict(self._oracle._target_node.attrs) if self._oracle._target_node else {}
+            },
+            "config": {
+                "experiment_name": None,  # Will be set by BenchmarkRunner
+                "observability_mode": self._seeker.observability_mode.name,
+                "max_turns": self._max_turns,
+                "models": {
+                    "seeker": self._seeker._llm_adapter.config.model,
+                    "oracle": self._oracle._llm_adapter.config.model,
+                    "pruner": self._pruner.llm_adapter.config.model
+                }
+            },
+            "results": {
+                "turns_played": len(self._turns),
+                "win": win,
+                "h_start": summary["h_start"],
+                "h_end": summary["h_end"],
+                "total_info_gain": summary["total_info_gain"],
+                "compliance_rate": round(compliance_rate, 4),
+                "final_active_nodes": final_active
+            },
+            "graph_stats": {
+                "initial_nodes": initial_nodes,
+                "final_nodes": final_active,
+                "total_pruned": total_pruned,
+                "pruning_efficiency": round(total_pruned / initial_nodes, 4) if initial_nodes > 0 else 0
+            }
+        }
+        
+        with (output_dir / "metadata.json").open("w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2, ensure_ascii=False)
+        
+        # 5. Save turn-by-turn details in JSONL format
+        with (output_dir / "turns.jsonl").open("w", encoding="utf-8") as f:
+            for turn_state in self._turns:
+                # Parse answer rationale from JSON if Oracle returned JSON
+                answer_rationale = None
+                try:
+                    if turn_state.answer.text.strip().startswith("{"):
+                        answer_json = json.loads(turn_state.answer.text)
+                        answer_rationale = answer_json.get("rationale", None)
+                except:
+                    pass
+                
+                turn_data = {
+                    "turn_index": turn_state.turn_index,
+                    "h_before": round(turn_state.h_before, 4),
+                    "h_after": round(turn_state.h_after, 4),
+                    "info_gain": round(turn_state.info_gain, 4),
+                    "pruned_count": turn_state.pruned_count,
+                    "active_nodes_before": turn_state.active_nodes_before,
+                    "active_nodes_after": turn_state.active_nodes_after,
+                    "question": {
+                        "text": turn_state.question.text
+                    },
+                    "answer": {
+                        "text": turn_state.answer.text,
+                        "compliant": turn_state.answer.compliant,
+                        "game_over": turn_state.answer.game_over,
+                        "rationale": answer_rationale
+                    },
+                    "pruning": {
+                        "pruned_ids": list(turn_state.pruning_result.pruned_ids) if turn_state.pruning_result else [],
+                        "rationale": turn_state.pruning_result.rationale if turn_state.pruning_result else None
+                    },
+                    "timestamp_start": turn_state.timestamp_start,
+                    "timestamp_end": turn_state.timestamp_end,
+                    "duration_seconds": turn_state.duration_seconds
+                }
+                
+                # Write as single line (JSONL format)
+                f.write(json.dumps(turn_data, ensure_ascii=False) + "\n")
 
 

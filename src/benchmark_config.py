@@ -22,5 +22,8 @@ class BenchmarkConfig:
     # Optional experiment metadata
     experiment_name: Optional[str] = None
     tags: Dict[str, Any] = field(default_factory=dict)
+    
+    # Conversation saving options
+    save_conversations: bool = True
 
  
