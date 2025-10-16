@@ -47,8 +47,11 @@ class TurnState:
     pruning_result: Optional[PruningResult] = None
     active_nodes_before: Optional[int] = None
     active_nodes_after: Optional[int] = None
+    active_leaf_nodes_before: Optional[int] = None
+    active_leaf_nodes_after: Optional[int] = None
     timestamp_start: Optional[str] = None
     timestamp_end: Optional[str] = None
     duration_seconds: Optional[float] = None
+    graph_snapshot: Optional[str] = None
 
 

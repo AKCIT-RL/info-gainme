@@ -151,28 +151,47 @@ class Orchestrator:
         print(f"❓ Question: {turn.question.text}")
         print(f"💬 Answer: {turn.answer.text}")
         print(f"✅ Compliant: {turn.answer.compliant}")
-        
+
+        # Show pruned nodes
+        print(f"🔍 Pruning Rationale: {turn.pruning_result.rationale}")
+        print(f"🔍 Pruned Nodes: {turn.pruning_result.pruned_ids}")
+
+        # Show current active nodes count
+        active_leaf_count = len(self._graph.get_active_leaf_nodes())
+        print(f"🎯 Active Leaf Nodes: {active_leaf_count}") 
+        active_count = len(self._graph.get_active_nodes())
+        print(f"🎯 Active Nodes: {active_count}")
+
         # Show entropy metrics
         print(f"📊 Entropy: {turn.h_before:.4f} → {turn.h_after:.4f}")
         print(f"📈 Info Gain: {turn.info_gain:.4f}")
         print(f"✂️  Pruned: {turn.pruned_count} nodes")
-        
-        # Show current active nodes count
-        active_count = len(self._graph.get_active_nodes())
-        print(f"🎯 Active Nodes: {active_count}")
-        
+    
+
         # Show progress
         progress = (turn.turn_index / self._max_turns) * 100
         print(f"⏳ Progress: {progress:.1f}% ({turn.turn_index}/{self._max_turns})")
         
         print("-" * 50)
 
-    def run(self, debug: bool = False) -> None:
+    def run(self, debug: bool = False, save_plots: bool = False, plots_dir: Optional[Path] = None) -> None:
         """Execute the benchmark loop.
 
         Delegates pruning decisions to the configured `PrunerAgent`, which is LLM-driven. 
         Entropy is computed before and after each turn. Timestamps are captured for each turn.
+        
+        Args:
+            debug: Show detailed turn-by-turn information.
+            save_plots: Save graph plot for each turn.
+            plots_dir: Directory to save plots. If None and save_plots=True, uses default.
         """
+        # Apaga os plots existentes no diretório de plots
+        if save_plots:
+            plots_dir = plots_dir or Path("outputs/plots")
+            for plot_file in plots_dir.glob("*.png"):
+                print(f"Cleaning up residual plot file: {plot_file}")
+                plot_file.unlink()
+        
         for turn in range(1, self._max_turns + 1):
             self._current_turn = turn
             
@@ -181,12 +200,26 @@ class Orchestrator:
 
             active_nodes = self._graph.get_active_nodes()
             active_nodes_before = len(active_nodes)
-            h_before = self._entropy.compute(active_nodes)
+            
+            # Compute entropy only over leaf nodes (cities) since only they can be targets
+            active_leaf_nodes = self._graph.get_active_leaf_nodes()
+            active_leaf_nodes_before = len(active_leaf_nodes)
+            h_before = self._entropy.compute(active_leaf_nodes)
 
             # Prepare textual graph view and inject once if fully observed
             graph_text = self._graph.graph_to_text()
             if turn == 1 and self._seeker.observability_mode.name == "FULLY_OBSERVED":
                 self._seeker.add_initial_graph(graph_text, turn)
+            
+            # Save plot before pruning if requested
+            if save_plots:
+                plot_dir = plots_dir
+                plot_dir.mkdir(parents=True, exist_ok=True)
+                plot_path = plot_dir / f"turn_{turn:02d}.png"
+                self._graph.plot(
+                    output_path=str(plot_path),
+                    title=f"Turn {turn} ({active_nodes_before} nodes)"
+                )
 
             # Seeker asks a question
             question: Question = self._seeker.question_to_oracle(active_nodes, turn)
@@ -202,12 +235,13 @@ class Orchestrator:
                 turn_index=turn,
                 question=question,
                 answer=answer,
+                active_leaf_nodes=active_leaf_nodes,
             )
             if pruning_result.pruned_ids:
                 self._graph.apply_pruning(pruning_result.pruned_ids)
                 pruned_count = len(pruning_result.pruned_ids)
                 if debug:
-                    print(f"🔍 Pruning: {pruning_result.rationale}")
+                    print(f"🔍 Pruning: {pruning_result.rationale}\n Pruned IDs: {pruning_result.pruned_ids}")
 
             # Seeker integrates the oracle's answer and (optionally) context from graph text
             self._seeker.add_oracle_answer_and_pruning(
@@ -216,9 +250,11 @@ class Orchestrator:
                 turn=turn,
             )
 
-            # Compute entropy after pruning
+            # Compute entropy after pruning (only over leaf nodes/cities)
             active_nodes_after = len(self._graph.get_active_nodes())
-            h_after = self._entropy.compute(self._graph.get_active_nodes())
+            active_leaf_nodes_after = self._graph.get_active_leaf_nodes()
+            active_leaf_nodes_after_count = len(active_leaf_nodes_after)
+            h_after = self._entropy.compute(active_leaf_nodes_after)
             info_gain = self._entropy.info_gain(h_before, h_after)
             
             # End timestamp
@@ -237,9 +273,12 @@ class Orchestrator:
                     pruning_result=pruning_result,
                     active_nodes_before=active_nodes_before,
                     active_nodes_after=active_nodes_after,
+                    active_leaf_nodes_before=active_leaf_nodes_before,
+                    active_leaf_nodes_after=active_leaf_nodes_after_count,
                     timestamp_start=turn_start.isoformat(),
                     timestamp_end=turn_end.isoformat(),
                     duration_seconds=round(duration, 6),
+                    graph_snapshot=graph_text,
                 )
             )
 
@@ -413,8 +452,13 @@ class Orchestrator:
                     "h_after": round(turn_state.h_after, 4),
                     "info_gain": round(turn_state.info_gain, 4),
                     "pruned_count": turn_state.pruned_count,
-                    "active_nodes_before": turn_state.active_nodes_before,
-                    "active_nodes_after": turn_state.active_nodes_after,
+                    "graph_state": {
+                        "active_nodes_before": turn_state.active_nodes_before,
+                        "active_nodes_after": turn_state.active_nodes_after,
+                        "active_cities_before": turn_state.active_leaf_nodes_before,
+                        "active_cities_after": turn_state.active_leaf_nodes_after,
+                        "cities_pruned": turn_state.active_leaf_nodes_before - turn_state.active_leaf_nodes_after if turn_state.active_leaf_nodes_before and turn_state.active_leaf_nodes_after else 0
+                    },
                     "question": {
                         "text": turn_state.question.text
                     },
@@ -435,5 +479,6 @@ class Orchestrator:
                 
                 # Write as single line (JSONL format)
                 f.write(json.dumps(turn_data, ensure_ascii=False) + "\n")
+    
 
 

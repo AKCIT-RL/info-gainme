@@ -291,7 +291,7 @@ class KnowledgeGraph:
             linewidths=0.2, edgecolors="#333333", ax=ax
         )
 
-        # Add labels (only for non-city nodes, like the original)
+        # Add labels for all nodes including cities
         labels = {}
         for node_id in G.nodes():
             node_type = "unknown"
@@ -299,10 +299,10 @@ class KnowledgeGraph:
                 if node.id == node_id:
                     node_type = node.attrs.get("type", "unknown")
                     break
-            if node_type in {"region", "subregion", "country", "state"}:
-                labels[node_id] = G.nodes[node_id]["label"]
+            # Include all node types
+            labels[node_id] = G.nodes[node_id]["label"]
         
-        nx.draw_networkx_labels(G, pos, labels, font_size=6, ax=ax)
+        nx.draw_networkx_labels(G, pos, labels, font_size=8, ax=ax)
 
         # Add edge labels
         edge_labels = nx.get_edge_attributes(G, "relation")
