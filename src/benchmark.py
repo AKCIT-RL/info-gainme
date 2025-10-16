@@ -13,6 +13,7 @@ import json
 from .benchmark_config import BenchmarkConfig
 from .graph import KnowledgeGraph, Node
 from .orchestrator import Orchestrator
+import os
 
 
 def _safe_name(text: str) -> str:
@@ -74,6 +75,28 @@ class BenchmarkRunner:
                 ]
             )
 
+    def _get_completed_runs(self, csv_path: Path) -> set[tuple[str, int]]:
+        """Return set of (target_id, run_index) already completed for this experiment.
+        
+        Args:
+            csv_path: Path to the runs CSV file.
+            
+        Returns:
+            Set of (target_id, run_index) tuples that have been completed.
+        """
+        if not csv_path.exists():
+            return set()
+        
+        completed = set()
+        with csv_path.open("r") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                # Only count runs from the same experiment
+                if row["experiment_name"] == (self.config.experiment_name or "default"):
+                    completed.add((row["target_id"], int(row["run_index"])))
+        
+        return completed
+
     def run(
         self,
         *,
@@ -84,6 +107,7 @@ class BenchmarkRunner:
     ) -> Path:
         """Run the benchmark across targets and append results to CSV.
         
+        Supports resuming interrupted experiments by detecting completed runs.
         Optionally saves agent conversations to JSON files if save_conversations is True.
 
         Returns:
@@ -94,12 +118,30 @@ class BenchmarkRunner:
         csv_path.parent.mkdir(parents=True, exist_ok=True)
         self._ensure_header(csv_path)
         
-        game_counter = 1
+        # Load completed runs to support resume
+        completed_runs = self._get_completed_runs(csv_path)
+        
+        # Calculate next game_counter based on completed runs
+        game_counter = len(completed_runs) + 1
+        
+        # Count skipped and total
+        skipped_count = 0
+        total_planned = 0
 
         for target in targets:
-            if debug:
-                print(f"Running target: {target.label} - {target.id}")
             for run_idx in range(1, int(runs_per_target) + 1):
+                total_planned += 1
+                
+                # Check if this run is already completed
+                if (target.id, run_idx) in completed_runs:
+                    skipped_count += 1
+                    if debug:
+                        print(f"⏭️  Skipping {target.label} [{target.id}] run {run_idx}/{runs_per_target} (already completed)")
+                    continue
+                
+                if debug:
+                    print(f"🎮 Running {target.label} [{target.id}] run {run_idx}/{runs_per_target}")
+                
                 # Reset graph pruning state before each game
                 graph.reset_pruning()
                 
@@ -114,7 +156,11 @@ class BenchmarkRunner:
                     max_turns=self.config.max_turns,
                 )
 
-                orch.run(debug=debug)
+                orch.run(
+                    debug=debug, 
+                    save_plots=self.config.save_graph_plots,
+                    plots_dir=self._output_dir() / "plots"
+                    )
 
                 # Save conversation if enabled
                 conv_path_str = ""
@@ -125,6 +171,7 @@ class BenchmarkRunner:
                     conv_dir = self._output_dir() / "conversations" / \
                               f"game_{game_counter:03d}_{safe_label}_{safe_id}"
                     
+                    # Export conversation
                     orch.export_conversation(conv_dir)
                     
                     # Update metadata with game_id and experiment_name
@@ -169,6 +216,13 @@ class BenchmarkRunner:
                             conv_path_str,
                         ]
                     )
+        
+        # Print resume summary if any runs were skipped
+        if skipped_count > 0 and debug:
+            print(f"\n📊 Resume Summary:")
+            print(f"   - Total runs planned: {total_planned}")
+            print(f"   - Runs skipped (already completed): {skipped_count}")
+            print(f"   - New runs executed: {total_planned - skipped_count}")
 
         return csv_path
 

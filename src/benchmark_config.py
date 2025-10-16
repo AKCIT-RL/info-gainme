@@ -23,7 +23,8 @@ class BenchmarkConfig:
     experiment_name: Optional[str] = None
     tags: Dict[str, Any] = field(default_factory=dict)
     
-    # Conversation saving options
+    # Conversation and visualization saving options
     save_conversations: bool = True
+    save_graph_plots: bool = False  # Save graph visualizations for each turn
 
- 
+    
