@@ -10,6 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Set, Optional
 from types import MappingProxyType
+from pathlib import Path
 import networkx as nx
 import matplotlib.pyplot as plt
 from matplotlib.lines import Line2D
@@ -64,6 +65,23 @@ class KnowledgeGraph:
     def get_active_nodes(self) -> Set[Node]:
         """Return nodes that have not been pruned."""
         return {n for n in self.nodes if n.id not in self.pruned_ids}
+    
+    def get_active_leaf_nodes(self, leaf_type: str = "city") -> Set[Node]:
+        """Return active nodes that are leaf nodes (typically cities).
+        
+        Leaf nodes are nodes with no outgoing edges in the active graph.
+        In geographic graphs, these are typically cities that can be targets.
+        
+        Returns:
+            Set of active leaf nodes.
+        """
+        active_nodes = self.get_active_nodes()
+        active_ids = {n.id for n in active_nodes}
+        
+        # Find nodes with the specified leaf type
+        leaf_nodes = {n for n in active_nodes if n.attrs.get("type") == leaf_type}
+        
+        return leaf_nodes
 
     def apply_pruning(self, pruned: Set[str]) -> None:
         """Apply pruning by adding node ids to the internal pruned set.
@@ -74,6 +92,9 @@ class KnowledgeGraph:
         if not pruned:
             return
         self.pruned_ids.update(pruned)
+
+        #TODO: Verify if there is a not-leaf node without outgoing edges
+
     
     def reset_pruning(self) -> None:
         """Reset the pruning state, making all nodes active again.
@@ -82,13 +103,17 @@ class KnowledgeGraph:
         """
         self.pruned_ids.clear()
 
-    def graph_to_text(self) -> str:
+    def graph_to_text(self, save_to: Optional[str] = None) -> str:
         """Convert the active portion of the graph into a compact text format.
 
         The representation groups nodes by their semantic "type" (e.g., region,
         subregion, country, state, city) and lists active relations among active
         nodes. This is intended for LLM prompts where a concise, deterministic
         view of the current graph state is useful.
+
+        Args:
+            save_to: Optional file path to save the graph snapshot. If provided,
+                    the text representation will be written to this file.
 
         Returns:
             A multi-line string describing active nodes and relations.
@@ -158,7 +183,15 @@ class KnowledgeGraph:
                         lines.append(f"... and {remaining} more")
                     break
 
-        return "\n".join(lines)
+        result = "\n".join(lines)
+        
+        # Save to file if path provided
+        if save_to:
+            output_path = Path(save_to)
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            output_path.write_text(result, encoding="utf-8")
+        
+        return result
 
     def plot(
         self,
@@ -294,6 +327,9 @@ class KnowledgeGraph:
 
         plt.close()
 
+    def plot_active():
+        pass
+
 
 if __name__ == "__main__":
     # Self-tests similares ao adapter, sem dependências externas.
@@ -340,6 +376,11 @@ if __name__ == "__main__":
         kg = _build_sample_graph()
         text = kg.graph_to_text()
         print(text)
+        
+        # Test saving to file
+        print("\nTesting save to file...")
+        kg.graph_to_text(save_to="outputs/test_graph_snapshot.txt")
+        print("Graph snapshot saved to outputs/test_graph_snapshot.txt")
 
     _test_active_and_pruning()
     _test_plot()
