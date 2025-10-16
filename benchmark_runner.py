@@ -19,8 +19,9 @@ from src.benchmark import BenchmarkRunner
 # === Configuration ===
 OPENAI_API_KEY = getenv("OPENAI_API_KEY")
 
-SEEKER_MODEL = "gpt-4o-mini"
-SEEKER_BASE_URL = None
+# SEEKER_MODEL = "Qwen3-30B-A3B-Instruct-2507"
+SEEKER_MODEL = "Qwen3-8B"
+SEEKER_BASE_URL = "http://localhost:8000/v1"  # SSH tunnel: ssh -L 8000:localhost:8005 user_danielpedrozo@dgx-H100-02
 
 ORACLE_MODEL = "gpt-4o-mini"
 ORACLE_BASE_URL = None
@@ -29,13 +30,14 @@ PRUNER_MODEL = "gpt-4o-mini"
 PRUNER_BASE_URL = None
 
 OBSERVABILITY_MODE = ObservabilityMode.PARTIALLY_OBSERVED
-MAX_TURNS = 10
-EXPERIMENT_NAME = "top10_test"
+MAX_TURNS = 30
 
 # Dataset and targets
 CSV_PATH = Path("data/top_10_pop_cities.csv")
-NUM_TARGETS = 10  # Top 10 cities
+NUM_TARGETS = None
 RUNS_PER_TARGET = 2  # Number of runs per city
+
+EXPERIMENT_NAME = "top10_test_po"
 
 # Output
 OUTPUT_BASE = Path("outputs")
@@ -59,7 +61,7 @@ def main() -> None:
         [n for n in active_nodes if n.attrs.get("type") == "city"],
         key=lambda n: n.id
     )
-    target_cities = all_cities[:NUM_TARGETS]
+    target_cities = all_cities[:NUM_TARGETS] if NUM_TARGETS else all_cities
     
     print(f"📊 Experiment Configuration:")
     print(f"   - Experiment Name: {EXPERIMENT_NAME}")
@@ -79,19 +81,42 @@ def main() -> None:
     
     # Set up benchmark configuration
     config = BenchmarkConfig(
-        seeker_config=LLMConfig(model=SEEKER_MODEL, api_key=OPENAI_API_KEY, base_url=SEEKER_BASE_URL),
+        seeker_config=LLMConfig(
+            model=SEEKER_MODEL, 
+            api_key=OPENAI_API_KEY, 
+            base_url=SEEKER_BASE_URL,
+            timeout=120.0  # Increase timeout for local models
+        ),
         oracle_config=LLMConfig(model=ORACLE_MODEL, api_key=OPENAI_API_KEY, base_url=ORACLE_BASE_URL),
         pruner_config=LLMConfig(model=PRUNER_MODEL, api_key=OPENAI_API_KEY, base_url=PRUNER_BASE_URL),
         observability_mode=OBSERVABILITY_MODE,
         max_turns=MAX_TURNS,
-        experiment_name=EXPERIMENT_NAME
+        experiment_name=EXPERIMENT_NAME,
+        save_conversations=True,
+        save_graph_plots=True
     )
     
     # Create and run benchmark
     runner = BenchmarkRunner(config=config, output_base=OUTPUT_BASE)
     
-    print(f"\n🚀 Starting benchmark...")
-    print(f"   (This will take a while as agents play {len(target_cities) * RUNS_PER_TARGET} games...)\n")
+    # Check for existing results to support resume
+    csv_path = runner._csv_path()
+    if csv_path.exists():
+        completed_runs = runner._get_completed_runs(csv_path)
+        total_runs = len(target_cities) * RUNS_PER_TARGET
+        
+        if completed_runs:
+            print(f"\n🔄 Resuming experiment...")
+            print(f"   - Already completed: {len(completed_runs)}/{total_runs} runs")
+            print(f"   - Remaining: {total_runs - len(completed_runs)} runs")
+        else:
+            print(f"\n🚀 Starting NEW benchmark...")
+            print(f"   (This will take a while as agents play {total_runs} games...)")
+    else:
+        print(f"\n🚀 Starting NEW benchmark...")
+        print(f"   (This will take a while as agents play {len(target_cities) * RUNS_PER_TARGET} games...)")
+    
+    print()
     
     csv_path = runner.run(
         graph=graph,

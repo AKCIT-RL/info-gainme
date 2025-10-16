@@ -19,6 +19,8 @@ from typing import Any, Literal, Optional
 from openai import OpenAI
 from dotenv import load_dotenv
 import os
+import time
+from ..utils.utils import clean_llm_response
 
 load_dotenv()
 
@@ -143,6 +145,7 @@ class LLMAdapter:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         extra: Optional[dict[str, Any]] = None,
+        save_reasoning: bool = False,
     ) -> str:
         """Call the provider to generate the next assistant message.
 
@@ -222,20 +225,47 @@ class LLMAdapter:
                     {"role": "user", "content": f"{system_msg}\n\nSTARTING GAME!."}
                 ]
 
-        try:
-            completion = client.chat.completions.create(**request_kwargs)
-        except Exception as exc:  # pragma: no cover - provider/network specific
-            raise LLMAdapterError(f"Provider error: {exc}") from exc
+        # Retry logic with exponential backoff
+        max_retries = 5
+        base_delay = 1.0  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                completion = client.chat.completions.create(**request_kwargs)
+                break  # Success, exit retry loop
+            except Exception as exc:
+                if attempt < max_retries - 1:
+                    # Calculate backoff delay: 1s, 2s, 4s, 8s, 16s
+                    delay = base_delay * (2 ** attempt)
+                    print(f"⚠️  API error (attempt {attempt + 1}/{max_retries}): {exc}")
+                    print(f"   Retrying in {delay}s...")
+                    time.sleep(delay)
+                else:
+                    # Final attempt failed
+                    raise LLMAdapterError(f"Provider error after {max_retries} attempts: {exc}") from exc
 
         try:
-            content = completion.choices[0].message.content or ""
+            raw_content = completion.choices[0].message.content or ""
         except Exception as exc:  # pragma: no cover - schema guard
             raise LLMAdapterError("Malformed response from provider.") from exc
 
-        if add_to_history and content:
-            self._history.append({"role": "assistant", "content": content})
 
-        return content
+        # Clean content for return (removes thinking tags for parsing)
+        if self._config.model.lower().startswith("qwen"):
+            content = clean_llm_response(raw_content)
+
+            if save_reasoning:
+                self._history.append({"role": "assistant", "content": raw_content})
+            else:
+                self._history.append({"role": "assistant", "content": content})
+            
+            return content
+
+        # Save raw content to history (preserves thinking tags for analysis)
+        if add_to_history and raw_content:
+            self._history.append({"role": "assistant", "content": raw_content})
+
+        return raw_content
 
 
 __all__ = [

@@ -94,7 +94,7 @@ class SeekerAgent:
             ValueError: If active_nodes is empty.
         """
         # Generate question
-        question_text = self._llm_adapter.generate(max_tokens=100, temperature=0.7)
+        question_text = self._llm_adapter.generate()
         
         # Note: LLMAdapter.generate() automatically adds the response to history,
         # so we don't need to manually append it here
