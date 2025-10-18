@@ -84,18 +84,67 @@ class KnowledgeGraph:
         return leaf_nodes
 
     def apply_pruning(self, pruned: Set[str]) -> None:
-        """Apply pruning by adding node ids to the internal pruned set.
+        """Apply pruning by adding node ids to the internal pruned set. Only receives leaf nodes ids.
 
         Args:
             pruned: Set of node ids to mark as pruned.
         """
         if not pruned:
             return
+
+        # Mark initial nodes as pruned
         self.pruned_ids.update(pruned)
 
-        #TODO: Verify if there is a not-leaf node without outgoing edges
+        # Find candidate orphan parents
+        candidate_orphan_nodes = set()
+        for node_id in pruned:
+            parent_id = self.get_parent_id(node_id)
+            if parent_id:
+                candidate_orphan_nodes.add(parent_id)
+        
+        # Check which parents are actually orphaned (no active children)
+        new_pruned = set()
+        for node_id in candidate_orphan_nodes:
+            # Get all children of this parent
+            all_children = self.get_children_ids(node_id)
+            # Check if any children are still active (not pruned)
+            active_children = all_children - self.pruned_ids
+            if not active_children:  # No active children = orphaned
+                new_pruned.add(node_id)
+        
+        # Recursively apply pruning to orphaned parents
+        if new_pruned:
+            self.apply_pruning(new_pruned)
 
+    def get_parent_id(self, node_id: str) -> Optional[str]:
+        """Get the parent node ID for a given node.
+        
+        Args:
+            node_id: ID of the node to find parent for.
+            
+        Returns:
+            Parent node ID if found, None if no parent or node not found.
+        """
+        for edge in self.edges:
+            if edge.target_id == node_id and edge.relation in ("has_child", "contains"):
+                return edge.source_id
+        return None
     
+    def get_children_ids(self, node_id: str) -> Set[str]:
+        """Get all children node IDs for a given parent node.
+        
+        Args:
+            node_id: ID of the parent node.
+            
+        Returns:
+            Set of children node IDs.
+        """
+        children = set()
+        for edge in self.edges:
+            if edge.source_id == node_id and edge.relation in ("has_child", "contains"):
+                children.add(edge.target_id)
+        return children
+
     def reset_pruning(self) -> None:
         """Reset the pruning state, making all nodes active again.
         

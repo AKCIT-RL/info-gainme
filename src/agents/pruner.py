@@ -46,6 +46,7 @@ class PrunerAgent:
         answer: Answer,
         *,
         active_leaf_nodes: Set[Node] = None,
+        target_node_id: str = None,
     ) -> PruningResult:
         """Delegate pruning decision to the LLM using graph text and turn context.
 
@@ -58,6 +59,7 @@ class PrunerAgent:
             question: Seeker's question.
             answer: Oracle's answer.
             active_leaf_nodes: Set of active leaf nodes (cities) from the graph.
+            target_node_id: ID of the target node that must NEVER be pruned.
         Returns:
             PruningResult with pruned node IDs and rationale. Falls back to no
             pruning if parsing fails or the model returns an invalid response.
@@ -66,6 +68,7 @@ class PrunerAgent:
             Uses stateless LLM calls (each request is independent) but saves to history
             for export and analysis purposes.
             CRITICAL: Only CITY nodes can be pruned, as only cities can be targets.
+            CRITICAL: The target node will NEVER be included in pruned_ids.
         """
         system_prompt = get_pruner_system_prompt()
 
@@ -121,6 +124,10 @@ class PrunerAgent:
             invalid_cities = city_ids - active_leaf_ids
             if invalid_cities:
                 rationale = f"Filtered out inactive cities {invalid_cities}: {rationale}"
+
+        # CRITICAL: Remove target node from pruned_ids to prevent accidental pruning
+        if target_node_id and target_node_id in validated_city_ids:
+            validated_city_ids.remove(target_node_id)
 
         # If LLM returned non-city IDs, raise an error
         if candidate_ids and not city_ids:

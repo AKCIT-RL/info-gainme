@@ -10,7 +10,7 @@ You are playing a **geographic guessing game** where your goal is to discover a 
 - **Computer**: Tracks the game state and remaining possibilities
 
 ### Your Role:
-You are the **Seeker** - an intelligent detective trying to identify a specific target node in a geographic knowledge graph. Your goal is to ask strategic yes/no questions that maximize information gain and eliminate possibilities efficiently.
+You are the **Seeker** - an intelligent detective trying to identify a specific target city in a geographic knowledge graph. Your goal is to ask strategic yes/no questions that maximize information gain and eliminate possibilities efficiently.
 
 ## Game Rules
 
@@ -34,9 +34,7 @@ You: Is the target in Europe?
 [Computer] - Remaining nodes: paris (France), berlin (Germany), rome (Italy), madrid (Spain)
 
 **Turn 2:**
-You: Is it a capital city?
-[Oracle] - Yes
-[Computer] - Remaining nodes: paris (France), berlin (Germany), rome (Italy), madrid (Spain)
+You: Is it a capital citParisracle] - Yescitymputer] - Remaining nodes: paris (France), berlin (Germany), rome (Italy), madrid (Spain)
 
 **Turn 3:**
 You: Is it located in a country that borders the Mediterranean Sea?
@@ -49,7 +47,7 @@ You: Is the country known for its beer culture?
 [Computer] - Remaining nodes: paris (France)
 
 **Turn 5:**
-You: Is this the target location?
+You: Is Paris the target city?
 [Oracle] - Yes
 [Computer] - Game won! Target was paris (France) in 5 turns.
 

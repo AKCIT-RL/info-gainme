@@ -111,9 +111,9 @@ class Orchestrator:
             orch.run(debug=True)
         """
         # Create LLM adapters for each agent
-        seeker_adapter = LLMAdapter(seeker_config)
+        seeker_adapter = LLMAdapter(seeker_config, save_reasoning=True)
         oracle_adapter = LLMAdapter(oracle_config)
-        pruner_adapter = LLMAdapter(pruner_config, save_history=True)  # Save history but use stateless calls
+        pruner_adapter = LLMAdapter(pruner_config)  # Save history but use stateless calls
         
         # Create agents
         seeker = SeekerAgent(
@@ -236,6 +236,7 @@ class Orchestrator:
                 question=question,
                 answer=answer,
                 active_leaf_nodes=active_leaf_nodes,
+                target_node_id=self._oracle._target_node_id,
             )
             if pruning_result.pruned_ids:
                 self._graph.apply_pruning(pruning_result.pruned_ids)
@@ -347,7 +348,8 @@ class Orchestrator:
                 },
                 "observability_mode": self._seeker.observability_mode.name,
                 "total_messages": len(self._seeker._llm_adapter.history),
-                "history": self._seeker._llm_adapter.history
+                "history": self._seeker._llm_adapter.history,
+                "reasoning_history": self._seeker._llm_adapter.reasoning_history
             }
             with (output_dir / "seeker.json").open("w", encoding="utf-8") as f:
                 json.dump(seeker_data, f, indent=2, ensure_ascii=False)
@@ -368,7 +370,8 @@ class Orchestrator:
                     "attrs": dict(self._oracle._target_node.attrs) if self._oracle._target_node else {}
                 },
                 "total_messages": len(self._oracle._llm_adapter.history),
-                "history": self._oracle._llm_adapter.history
+                "history": self._oracle._llm_adapter.history,
+                "reasoning_history": self._oracle._llm_adapter.reasoning_history
             }
             with (output_dir / "oracle.json").open("w", encoding="utf-8") as f:
                 json.dump(oracle_data, f, indent=2, ensure_ascii=False)
@@ -389,10 +392,12 @@ class Orchestrator:
         if self._pruner.llm_adapter._save_history:
             pruner_data["total_messages"] = len(self._pruner.llm_adapter.history)
             pruner_data["history"] = self._pruner.llm_adapter.history
+            pruner_data["reasoning_history"] = self._pruner.llm_adapter.reasoning_history
         else:
             pruner_data["note"] = "Pruner was configured with save_history=False. No conversation history available."
             pruner_data["history"] = []
-        
+            pruner_data["reasoning_history"] = []
+            
         with (output_dir / "pruner.json").open("w", encoding="utf-8") as f:
             json.dump(pruner_data, f, indent=2, ensure_ascii=False)
         

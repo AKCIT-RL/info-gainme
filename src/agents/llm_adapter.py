@@ -74,11 +74,16 @@ class LLMAdapter:
     def __init__(
         self, 
         config: Optional[LLMConfig] = None,
-        save_history: bool = True
+        save_history: bool = True,
+        save_reasoning: bool = False
         ) -> None:
         self._config: LLMConfig = config
         self._history: list[dict[str, str]] = [] if save_history else None
         self._save_history = save_history
+        self._save_reasoning = save_reasoning
+        
+        # Separate storage for raw responses with reasoning (for export only)
+        self._reasoning_history: list[dict[str, str]] = [] if save_reasoning else None
 
         assert self._config.api_key is not None if not self._config.base_url else True, "Both api_key and base_url cannot be None"
 
@@ -99,6 +104,10 @@ class LLMAdapter:
         if not text:
             raise ValueError("text must be non-empty")
         self._history.append({"role": role, "content": text})
+        
+        # Mirror system and user messages to reasoning_history for complete context
+        if self._save_reasoning and role in ("system", "user"):
+            self._reasoning_history.append({"role": role, "content": text})
 
     def reset_history(self) -> None:
         """Clear the internal chat history."""
@@ -110,6 +119,16 @@ class LLMAdapter:
     def history(self) -> list[dict[str, str]]:
         """Return a shallow copy of the internal history for read-only use."""
         return list(self._history)
+    
+    @property
+    def reasoning_history(self) -> list[dict[str, str]]:
+        """Return a shallow copy of the reasoning history (raw responses with <think> tags).
+        
+        Returns:
+            List of messages with raw content including reasoning tags.
+            Empty list if save_reasoning=False.
+        """
+        return list(self._reasoning_history) if self._reasoning_history else []
 
     @property
     def config(self) -> LLMConfig:
@@ -250,22 +269,19 @@ class LLMAdapter:
             raise LLMAdapterError("Malformed response from provider.") from exc
 
 
-        # Clean content for return (removes thinking tags for parsing)
-        if self._config.model.lower().startswith("qwen"):
-            content = clean_llm_response(raw_content)
-
-            if save_reasoning:
-                self._history.append({"role": "assistant", "content": raw_content})
-            else:
-                self._history.append({"role": "assistant", "content": content})
-            
-            return content
-
-        # Save raw content to history (preserves thinking tags for analysis)
-        if add_to_history and raw_content:
-            self._history.append({"role": "assistant", "content": raw_content})
-
-        return raw_content
+        # Clean content for return and manage dual history
+        cleaned_content = clean_llm_response(raw_content) if self._config.model.lower().startswith("qwen") else raw_content
+        
+        # Save to appropriate histories
+        if add_to_history and cleaned_content:
+            # Main history: always cleaned (used as input for next turns)
+            self._history.append({"role": "assistant", "content": cleaned_content})
+        
+        if self._save_reasoning and raw_content:
+            # Reasoning history: always raw (used for export/analysis only)
+            self._reasoning_history.append({"role": "assistant", "content": raw_content})
+        
+        return cleaned_content
 
 
 __all__ = [
