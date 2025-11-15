@@ -107,7 +107,7 @@ def synthesize_reasoning_trace(
             raise ValueError(f"Invalid JSON response: {response}")
         
         # Validate required fields
-        required_fields = ["summary", "options_considered", "decision_rationale"]
+        required_fields = ["summary", "questions_considered", "decision_rationale"]
         for field in required_fields:
             if field not in parsed:
                 parsed[field] = f"Missing field: {field}"
@@ -118,7 +118,7 @@ def synthesize_reasoning_trace(
         # Fallback: create basic structure if synthesis fails
         return {
             "summary": "Synthesis failed",
-            "options_considered": [],
+            "questions_considered": [],
             "decision_rationale": f"Error: {str(e)}"
         }
 

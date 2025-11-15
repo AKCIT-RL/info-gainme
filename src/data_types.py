@@ -5,10 +5,9 @@ Provides `TurnState`, `PruningResult`, and enums per UML.
 
 from __future__ import annotations
 
-from ast import List
 from dataclasses import dataclass, asdict
 from enum import Enum
-from typing import Optional, Any, List
+from typing import Optional, Any
 from pydantic import BaseModel
 import json
 
@@ -36,7 +35,7 @@ class Answer:
 
 
 class PrunerResponse(BaseModel):
-    pruned_ids: List[str]
+    pruned_ids: list[str]
     rationale: str
 
 @dataclass
