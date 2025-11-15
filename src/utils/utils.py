@@ -8,7 +8,7 @@ import re
 from typing import Any
 
 
-def clean_llm_response(text: str) -> str:
+def llm_final_content(text: str) -> str:
     """Remove common artifacts from LLM outputs before JSON parsing.
     
     This function removes:
@@ -27,10 +27,13 @@ def clean_llm_response(text: str) -> str:
     
     # Remove unclosed <think> tags (everything from <think> to end)
     text = re.sub(r'<think>.*', '', text, flags=re.IGNORECASE | re.DOTALL)
+
+    # Remove text before </think> tags
+    text = re.sub(r'.*</think>', '', text, flags=re.IGNORECASE | re.DOTALL)
     
     # Remove markdown code blocks
-    text = re.sub(r'```(?:json)?\s*', '', text)
-    text = re.sub(r'\s*```', '', text)
+    # text = re.sub(r'```(?:json)?\s*', '', text)
+    # text = re.sub(r'\s*```', '', text)
     
     # Strip excessive whitespace
     return text.strip()
@@ -71,6 +74,6 @@ def parse_first_json_object(text: str) -> dict[str, Any] | None:
         return None
 
 
-__all__ = ["parse_first_json_object", "clean_llm_response"]
+__all__ = ["parse_first_json_object", "llm_final_content"]
 
 
