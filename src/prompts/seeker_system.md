@@ -51,3 +51,6 @@ You: Is Paris the target city?
 [Oracle] - Yes
 [Computer] - Game won! Target was paris (France) in 5 turns.
 
+
+RETURN ONLY YOUR QUESTION AS SEEKER
+
