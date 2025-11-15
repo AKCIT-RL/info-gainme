@@ -20,6 +20,9 @@ class GameRun:
         win: Se o seeker venceu
         compliance_rate: Taxa de compliance do oracle
         conversation_path: Caminho relativo para conversas salvas
+        seeker_total_tokens: Total de tokens do Seeker
+        seeker_reasoning_tokens: Tokens de reasoning (None se não houver)
+        seeker_final_tokens: Tokens da resposta final
     """
     target_id: str
     target_label: str
@@ -32,6 +35,9 @@ class GameRun:
     win: bool
     compliance_rate: float
     conversation_path: Optional[str] = None
+    seeker_total_tokens: int = 0
+    seeker_reasoning_tokens: Optional[int] = None
+    seeker_final_tokens: int = 0
 
 
 @dataclass
@@ -110,6 +116,29 @@ class CityStats:
         mean = self.mean_avg_info_gain_per_turn
         variance = sum((r.avg_info_gain_per_turn - mean) ** 2 for r in self.runs) / self.num_runs
         return variance ** 0.5
+    
+    @property
+    def mean_seeker_tokens(self) -> float:
+        """Média de tokens do Seeker nesta cidade."""
+        if not self.runs:
+            return 0.0
+        return sum(r.seeker_total_tokens for r in self.runs) / self.num_runs
+    
+    @property
+    def mean_seeker_reasoning_tokens(self) -> Optional[float]:
+        """Média de tokens de reasoning do Seeker (None se nenhum run tiver reasoning)."""
+        runs_with_reasoning = [r for r in self.runs if r.seeker_reasoning_tokens is not None]
+        if not runs_with_reasoning:
+            return None
+        total = sum(r.seeker_reasoning_tokens for r in runs_with_reasoning if r.seeker_reasoning_tokens is not None)
+        return total / len(runs_with_reasoning)
+    
+    @property
+    def mean_seeker_final_tokens(self) -> float:
+        """Média de tokens da resposta final do Seeker."""
+        if not self.runs:
+            return 0.0
+        return sum(r.seeker_final_tokens for r in self.runs) / self.num_runs
 
 
 @dataclass
@@ -177,6 +206,32 @@ class ExperimentResults:
         total_avg_gi = sum(sum(r.avg_info_gain_per_turn for r in city.runs) for city in self.cities.values())
         return total_avg_gi / self.total_runs
     
+    @property
+    def mean_seeker_tokens(self) -> float:
+        """Média global de tokens do Seeker."""
+        if self.total_runs == 0:
+            return 0.0
+        total_tokens = sum(sum(r.seeker_total_tokens for r in city.runs) for city in self.cities.values())
+        return total_tokens / self.total_runs
+    
+    @property
+    def mean_seeker_reasoning_tokens(self) -> Optional[float]:
+        """Média global de tokens de reasoning (None se nenhum run tiver reasoning)."""
+        all_runs = [r for city in self.cities.values() for r in city.runs]
+        runs_with_reasoning = [r for r in all_runs if r.seeker_reasoning_tokens is not None]
+        if not runs_with_reasoning:
+            return None
+        total = sum(r.seeker_reasoning_tokens for r in runs_with_reasoning if r.seeker_reasoning_tokens is not None)
+        return total / len(runs_with_reasoning)
+    
+    @property
+    def mean_seeker_final_tokens(self) -> float:
+        """Média global de tokens da resposta final do Seeker."""
+        if self.total_runs == 0:
+            return 0.0
+        total_tokens = sum(sum(r.seeker_final_tokens for r in city.runs) for city in self.cities.values())
+        return total_tokens / self.total_runs
+    
     def get_city(self, city_id: str) -> Optional[CityStats]:
         """Retorna estatísticas de uma cidade específica."""
         return self.cities.get(city_id)
@@ -202,6 +257,9 @@ class ExperimentResults:
                 "win_rate": round(self.global_win_rate, 4),
                 "mean_turns": round(self.mean_turns, 2),
                 "mean_compliance": round(self.mean_compliance, 4),
+                "mean_seeker_tokens": round(self.mean_seeker_tokens, 0),
+                "mean_seeker_reasoning_tokens": round(self.mean_seeker_reasoning_tokens, 0) if self.mean_seeker_reasoning_tokens is not None else None,
+                "mean_seeker_final_tokens": round(self.mean_seeker_final_tokens, 0),
             },
             "by_city": {
                 city_id: {
@@ -215,6 +273,9 @@ class ExperimentResults:
                     "win_rate": round(city.win_rate, 4),
                     "mean_turns": round(city.mean_turns, 2),
                     "std_turns": round(city.std_turns, 2),
+                    "mean_seeker_tokens": round(city.mean_seeker_tokens, 0),
+                    "mean_seeker_reasoning_tokens": round(city.mean_seeker_reasoning_tokens, 0) if city.mean_seeker_reasoning_tokens is not None else None,
+                    "mean_seeker_final_tokens": round(city.mean_seeker_final_tokens, 0),
                 }
                 for city_id, city in sorted(self.cities.items())
             }

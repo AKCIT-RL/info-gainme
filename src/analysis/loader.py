@@ -1,10 +1,12 @@
 """Loader for experiment results from CSV files."""
 
 import csv
+import json
 from pathlib import Path
 from collections import defaultdict
-
+from tqdm import tqdm
 from .data_types import GameRun, CityStats, ExperimentResults
+from ..utils.token_counter import count_seeker_tokens
 
 
 def load_experiment_results(csv_path: Path) -> ExperimentResults:
@@ -43,7 +45,42 @@ def load_experiment_results(csv_path: Path) -> ExperimentResults:
     
     # Agrupar runs por cidade
     cities_data = defaultdict(list)
-    for row in rows:
+    csv_dir = csv_path.parent
+    
+    for row in tqdm(rows, desc="Processando runs e contando tokens", unit="run"):
+        # Calcular tokens do Seeker se conversation_path disponível
+        seeker_total_tokens = 0
+        seeker_reasoning_tokens = None
+        seeker_final_tokens = 0
+        
+        conversation_path = row.get("conversation_path")
+        if conversation_path:
+            # conversation_path é relativo ao output_base (outputs/)
+            # csv_dir está em outputs/models/.../experiment_name/
+            # Precisamos subir até outputs/ e então adicionar conversation_path
+            output_base = csv_dir.parent.parent.parent  # outputs/
+            seeker_json_path = output_base / conversation_path / "seeker.json"
+            if seeker_json_path.exists():
+                try:
+                    with seeker_json_path.open("r", encoding="utf-8") as f:
+                        seeker_data = json.load(f)
+                    
+                    reasoning_history = seeker_data.get("reasoning_history", [])
+                    history = seeker_data.get("history", [])
+                    model = seeker_data.get("config", {}).get("model")
+                    
+                    total, reasoning, final = count_seeker_tokens(
+                        reasoning_history, history, model
+                    )
+                    seeker_total_tokens = total
+                    seeker_reasoning_tokens = reasoning
+                    seeker_final_tokens = final
+                except Exception as e:
+                    # Se falhar ao carregar tokens, usar valores padrão (0)
+                    # Debug: descomente a linha abaixo para ver erros
+                    # import traceback; traceback.print_exc()
+                    pass
+        
         game_run = GameRun(
             target_id=row["target_id"],
             target_label=row["target_label"],
@@ -55,7 +92,10 @@ def load_experiment_results(csv_path: Path) -> ExperimentResults:
             avg_info_gain_per_turn=float(row.get("avg_info_gain_per_turn", 0.0)),
             win=bool(int(row["win"])),
             compliance_rate=float(row["compliance_rate"]),
-            conversation_path=row.get("conversation_path") or None,
+            conversation_path=conversation_path or None,
+            seeker_total_tokens=seeker_total_tokens,
+            seeker_reasoning_tokens=seeker_reasoning_tokens,
+            seeker_final_tokens=seeker_final_tokens,
         )
         cities_data[game_run.target_id].append(game_run)
     

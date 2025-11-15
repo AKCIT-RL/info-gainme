@@ -2,9 +2,14 @@
 Analisa resultados de um experimento e gera summary.json e variance.json.
 
 Usage:
-    python scripts/analyze_results.py
-    # ou especificar CSV:
+    # analisar um CSV específico
     python scripts/analyze_results.py path/to/runs.csv
+
+    # analisar todos os runs.csv sob outputs (default: ./outputs)
+    python scripts/analyze_results.py --all [base_outputs_dir]
+
+    # sem argumentos: usa um CSV padrão legado
+    python scripts/analyze_results.py
 """
 
 import sys
@@ -17,36 +22,24 @@ from src.analysis.loader import load_experiment_results
 from src.analysis.writer import save_summary, save_city_variance
 
 
-def main():
-    """Main entry point for results analysis."""
-    # Default: analisar último experimento conhecido
-    default_csv = Path("/Users/daniel2/Documents/AKCIT-RL/clary_quest/outputs/models/s_qwen3-8b__o_gpt-4o-mini__p_gpt-4o-mini/top40_po/runs.csv")
-    
-    # Permitir especificar CSV via argumento
-    if len(sys.argv) > 1:
-        csv_path = Path(sys.argv[1])
-    else:
-        csv_path = default_csv
-    
+def _analyze_single_csv(csv_path: Path) -> int:
+    """Executa a análise para um único arquivo runs.csv."""
     if not csv_path.exists():
         print(f"❌ CSV não encontrado: {csv_path}")
-        print(f"\nUsage: python {Path(__file__).name} [path/to/runs.csv]")
         return 1
-    
+
     print(f"\n{'='*70}")
     print(f"📊 ANÁLISE DE RESULTADOS - CLARY QUEST")
     print(f"{'='*70}")
     print(f"📁 CSV: {csv_path}")
     print(f"{'='*70}\n")
-    
-    # Carregar resultados
+
     try:
         results = load_experiment_results(csv_path)
     except Exception as e:
         print(f"❌ Erro ao carregar CSV: {e}")
         return 1
-    
-    # Exibir resumo no terminal
+
     print(f"🎯 Experimento: {results.experiment_name}")
     print(f"🤖 Models: {results.seeker_model} (S) / {results.oracle_model} (O) / {results.pruner_model} (P)")
     print(f"👁️  Observability: {results.observability}")
@@ -61,11 +54,15 @@ def main():
     print(f"🏆 Win rate global: {results.global_win_rate:.2%}")
     print(f"🔄 Média de turnos: {results.mean_turns:.2f}")
     print(f"✅ Compliance médio: {results.mean_compliance:.2%}")
-    
+    print(f"🔤 Tokens médios (Seeker): {results.mean_seeker_tokens:.0f}")
+    if results.mean_seeker_reasoning_tokens is not None:
+        print(f"🧠 Tokens reasoning médios: {results.mean_seeker_reasoning_tokens:.0f}")
+        print(f"💬 Tokens resposta final médios: {results.mean_seeker_final_tokens:.0f}")
+
     print(f"\n{'='*70}")
     print(f"📊 RESULTADOS POR CIDADE")
     print(f"{'='*70}")
-    
+
     for city_id, city in sorted(results.cities.items(), key=lambda x: x[1].mean_info_gain, reverse=True):
         print(f"\n🏙️  {city.city_label} ({city_id})")
         print(f"   📊 Runs: {city.num_runs}")
@@ -74,16 +71,19 @@ def main():
         print(f"   📊 GI médio/turno: {city.mean_avg_info_gain_per_turn:.4f} ± {city.std_avg_info_gain_per_turn:.4f}")
         print(f"   🏆 Win rate: {city.win_rate:.2%}")
         print(f"   🔄 Turnos médios: {city.mean_turns:.2f} ± {city.std_turns:.2f}")
-    
-    # Salvar JSONs
+        print(f"   🔤 Tokens médios: {city.mean_seeker_tokens:.0f}")
+        if city.mean_seeker_reasoning_tokens is not None:
+            print(f"   🧠 Tokens reasoning: {city.mean_seeker_reasoning_tokens:.0f}")
+            print(f"   💬 Tokens resposta final: {city.mean_seeker_final_tokens:.0f}")
+
     print(f"\n{'='*70}")
     print(f"💾 SALVANDO RESULTADOS")
     print(f"{'='*70}\n")
-    
+
     output_dir = csv_path.parent
     save_summary(results, output_dir / "summary.json")
     save_city_variance(results, output_dir / "variance.json")
-    
+
     print(f"\n{'='*70}")
     print(f"✅ ANÁLISE COMPLETA!")
     print(f"{'='*70}")
@@ -91,8 +91,64 @@ def main():
     print(f"   - summary.json (métricas globais + por cidade)")
     print(f"   - variance.json (foco em variância)")
     print(f"{'='*70}\n")
-    
+
     return 0
+
+
+def main():
+    """Main entry point for results analysis."""
+    # Base de outputs padrão relativa ao projeto
+    repo_root = Path(__file__).parent.parent
+    default_outputs_dir = repo_root / "outputs"
+
+    # Compatibilidade legado: CSV padrão específico (se nada for passado)
+    default_csv = (
+        repo_root
+        / "outputs/models/s_Llama-3.1-8B-Instruct__o_Qwen3-8B__p_Qwen3-8B/top40_fo/runs.csv"
+    )
+
+    # Sem argumentos → tenta default_csv legado
+    if len(sys.argv) == 1:
+        return _analyze_single_csv(default_csv)
+
+    # Modo --all: varre todos os runs.csv sob base_outputs_dir
+    if sys.argv[1] in {"--all", "all"}:
+        base_dir = (
+            Path(sys.argv[2])
+            if len(sys.argv) > 2
+            else default_outputs_dir
+        )
+
+        if not base_dir.exists():
+            print(f"❌ Diretório base não encontrado: {base_dir}")
+            print(
+                f"\nUsage: python {Path(__file__).name} --all [base_outputs_dir]"
+            )
+            return 1
+
+        runs_files = sorted(base_dir.rglob("runs.csv"))
+        if not runs_files:
+            print(f"❌ Nenhum runs.csv encontrado em: {base_dir}")
+            return 1
+
+        total_ok = 0
+        total_fail = 0
+        for csv_path in runs_files:
+            rc = _analyze_single_csv(csv_path)
+            if rc == 0:
+                total_ok += 1
+            else:
+                total_fail += 1
+
+        print(f"\n{'='*70}")
+        print(
+            f"📦 Processados: {total_ok} com sucesso, {total_fail} com erro(s) (base: {base_dir})"
+        )
+        print(f"{'='*70}\n")
+        return 0 if total_fail == 0 else 1
+
+    # Caso contrário: argumento é caminho para um CSV específico
+    return _analyze_single_csv(Path(sys.argv[1]))
 
 
 if __name__ == "__main__":
