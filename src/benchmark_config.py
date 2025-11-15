@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
 
 from src.data_types import ObservabilityMode
-from src.agents.llm_adapter import LLMConfig
+from src.agents.llm_config import LLMConfig
 
 
 @dataclass
@@ -16,8 +16,8 @@ class BenchmarkConfig:
     oracle_config: LLMConfig
     pruner_config: LLMConfig
 
-    observability_mode: ObservabilityMode = ObservabilityMode.FULLY_OBSERVABLE
-    max_turns: int = 40
+    observability_mode: ObservabilityMode
+    max_turns: int
 
     # Optional experiment metadata
     experiment_name: Optional[str] = None

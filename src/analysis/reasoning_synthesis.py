@@ -7,7 +7,8 @@ import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..agents.llm_adapter import LLMAdapter, LLMConfig
+from ..agents.llm_adapter import LLMAdapter
+from ..agents.llm_config import LLMConfig
 from ..prompts import get_reasoning_synthesis_prompt
 from ..utils import parse_first_json_object, ClaryLogger
 
@@ -56,6 +57,11 @@ def extract_reasoning_from_message(message: Dict[str, str]) -> Optional[str]:
     think_match = _THINK_PATTERN.search(content)
     if think_match:
         return think_match.group(1).strip()
+    
+    # If no tags found, check if this is a reasoning message (long content, not a simple question)
+    # Reasoning messages are typically longer and contain analysis
+    if len(content) > 100 and not content.startswith("Is the target"):
+        return content.strip()
     
     return None
 

@@ -18,7 +18,8 @@ from .data_types import TurnState, Question, Answer, ObservabilityMode
 from .agents.seeker import SeekerAgent
 from .agents.oracle import OracleAgent
 from .agents.pruner import PrunerAgent
-from .agents.llm_adapter import LLMAdapter, LLMConfig
+from .agents.llm_adapter import LLMAdapter
+from .agents.llm_config import LLMConfig
 
 
 class Orchestrator:
@@ -112,8 +113,8 @@ class Orchestrator:
         """
         # Create LLM adapters for each agent
         seeker_adapter = LLMAdapter(seeker_config, save_reasoning=True)
-        oracle_adapter = LLMAdapter(oracle_config)
-        pruner_adapter = LLMAdapter(pruner_config)  # Save history but use stateless calls
+        oracle_adapter = LLMAdapter(oracle_config, save_reasoning=True)
+        pruner_adapter = LLMAdapter(pruner_config, save_reasoning=True)  # Save history but use stateless calls
         
         # Create agents
         seeker = SeekerAgent(
