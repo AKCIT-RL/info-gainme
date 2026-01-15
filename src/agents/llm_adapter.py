@@ -229,7 +229,7 @@ class LLMAdapter:
                 ]
 
         # Retry logic with exponential backoff
-        max_retries = 5
+        max_retries = 50
         base_delay = 1.0  # seconds
         
         for attempt in range(max_retries):

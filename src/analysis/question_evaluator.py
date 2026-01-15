@@ -438,13 +438,31 @@ def evaluate_seeker_choices(
                total_evaluated, optimal_choices)
     
     # Calculate average chosen info gain (only for turns with valid chosen_info_gain)
+    # Exclude None values and negative values (which indicate evaluation errors)
     valid_chosen_ig = [t.get("chosen_info_gain") for t in turns_evaluation 
-                      if "error" not in t and t.get("chosen_info_gain") is not None]
+                      if "error" not in t 
+                      and t.get("chosen_info_gain") is not None 
+                      and t.get("chosen_info_gain") >= 0.0]
     avg_chosen_ig = sum(valid_chosen_ig) / len(valid_chosen_ig) if valid_chosen_ig else 0.0
     
     # Calculate average optimal info gain
     avg_optimal_ig = sum(t.get("optimal_info_gain", 0.0) for t in turns_evaluation 
                         if "error" not in t) / total_evaluated if total_evaluated > 0 else 0.0
+    
+    # Calculate average number of questions considered per turn
+    valid_turns_considered = [t.get("total_considered") for t in turns_evaluation 
+                             if "error" not in t and t.get("total_considered") is not None]
+    avg_questions_considered = sum(valid_turns_considered) / len(valid_turns_considered) if valid_turns_considered else 0.0
+    
+    # Count connection errors in question evaluations
+    connection_errors = 0
+    for turn_eval in turns_evaluation:
+        if "error" not in turn_eval:  # Skip turns with evaluation errors
+            questions_eval = turn_eval.get("questions_evaluation", [])
+            for q_eval in questions_eval:
+                error_msg = q_eval.get("error", "")
+                if error_msg and ("Connection error" in error_msg or "Connection" in error_msg.lower()):
+                    connection_errors += 1
     
     return {
         "conversation_dir": str(conversation_dir),
@@ -458,7 +476,9 @@ def evaluate_seeker_choices(
             "optimal_choices": optimal_choices,
             "optimal_choice_rate": optimal_choices / total_evaluated if total_evaluated > 0 else 0.0,
             "avg_chosen_info_gain": avg_chosen_ig,
-            "avg_optimal_info_gain": avg_optimal_ig
+            "avg_optimal_info_gain": avg_optimal_ig,
+            "avg_questions_considered_per_turn": avg_questions_considered,
+            "total_connection_errors": connection_errors
         }
     }
 
