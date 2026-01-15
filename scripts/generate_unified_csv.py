@@ -10,7 +10,9 @@ Usage:
 Colunas geradas:
     Experimento, Seeker Model, Observabilidade, Total Runs, Win Rate,
     Mean Turns, Mean Info Gain/Turn, Mean Info Gain,
-    Mean Seeker Tokens, Mean Seeker Reasoning Tokens, Mean Seeker Final Tokens
+    Mean Seeker Tokens, Mean Seeker Reasoning Tokens, Mean Seeker Final Tokens,
+    SE Win Rate, SE Mean Turns, SE Mean Info Gain/Turn, SE Mean Info Gain,
+    SE Mean Seeker Tokens, SE Mean Seeker Reasoning Tokens, SE Mean Seeker Final Tokens
 """
 
 from __future__ import annotations
@@ -38,6 +40,13 @@ HEADERS = [
     "Mean Seeker Tokens",
     "Mean Seeker Reasoning Tokens",
     "Mean Seeker Final Tokens",
+    "SE Win Rate",
+    "SE Mean Turns",
+    "SE Mean Info Gain/Turn",
+    "SE Mean Info Gain",
+    "SE Mean Seeker Tokens",
+    "SE Mean Seeker Reasoning Tokens",
+    "SE Mean Seeker Final Tokens",
     "id",
 ]
 
@@ -59,6 +68,13 @@ def _extract_from_summary(summary_path: Path) -> dict | None:
             "Mean Seeker Tokens": global_metrics.get("mean_seeker_tokens"),
             "Mean Seeker Reasoning Tokens": global_metrics.get("mean_seeker_reasoning_tokens"),
             "Mean Seeker Final Tokens": global_metrics.get("mean_seeker_final_tokens"),
+            "SE Win Rate": global_metrics.get("se_win_rate"),
+            "SE Mean Turns": global_metrics.get("se_mean_turns"),
+            "SE Mean Info Gain/Turn": global_metrics.get("se_mean_avg_info_gain_per_turn"),
+            "SE Mean Info Gain": global_metrics.get("se_mean_info_gain"),
+            "SE Mean Seeker Tokens": global_metrics.get("se_mean_seeker_tokens"),
+            "SE Mean Seeker Reasoning Tokens": global_metrics.get("se_mean_seeker_reasoning_tokens"),
+            "SE Mean Seeker Final Tokens": global_metrics.get("se_mean_seeker_final_tokens"),
         }
     except Exception:
         return None
@@ -80,6 +96,13 @@ def _extract_from_runs_csv(runs_csv: Path) -> dict | None:
             "Mean Seeker Tokens": round(results.mean_seeker_tokens, 0),
             "Mean Seeker Reasoning Tokens": round(results.mean_seeker_reasoning_tokens, 0) if results.mean_seeker_reasoning_tokens is not None else None,
             "Mean Seeker Final Tokens": round(results.mean_seeker_final_tokens, 0),
+            "SE Win Rate": round(results.se_win_rate, 4),
+            "SE Mean Turns": round(results.se_mean_turns, 2),
+            "SE Mean Info Gain/Turn": round(results.se_mean_avg_info_gain_per_turn, 4),
+            "SE Mean Info Gain": round(results.se_mean_info_gain, 4),
+            "SE Mean Seeker Tokens": round(results.se_mean_seeker_tokens, 0),
+            "SE Mean Seeker Reasoning Tokens": round(results.se_mean_seeker_reasoning_tokens, 0) if results.se_mean_seeker_reasoning_tokens is not None else None,
+            "SE Mean Seeker Final Tokens": round(results.se_mean_seeker_final_tokens, 0),
         }
     except Exception:
         return None

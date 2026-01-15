@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from typing import Optional
+import statistics
 
 
 @dataclass
@@ -67,16 +68,19 @@ class CityStats:
     
     @property
     def var_info_gain(self) -> float:
-        """Variância do ganho de informação desta cidade."""
-        if not self.runs:
+        """Variância do ganho de informação desta cidade (populacional)."""
+        if not self.runs or self.num_runs == 1:
             return 0.0
-        mean = self.mean_info_gain
-        return sum((r.total_info_gain - mean) ** 2 for r in self.runs) / self.num_runs
+        values = [r.total_info_gain for r in self.runs]
+        return statistics.pvariance(values)
     
     @property
     def std_info_gain(self) -> float:
-        """Desvio padrão do ganho de informação."""
-        return self.var_info_gain ** 0.5
+        """Desvio padrão do ganho de informação (populacional)."""
+        if not self.runs or self.num_runs == 1:
+            return 0.0
+        values = [r.total_info_gain for r in self.runs]
+        return statistics.pstdev(values)
     
     @property
     def win_rate(self) -> float:
@@ -94,12 +98,11 @@ class CityStats:
     
     @property
     def std_turns(self) -> float:
-        """Desvio padrão de turnos."""
-        if not self.runs:
+        """Desvio padrão de turnos (populacional)."""
+        if not self.runs or self.num_runs == 1:
             return 0.0
-        mean = self.mean_turns
-        variance = sum((r.turns - mean) ** 2 for r in self.runs) / self.num_runs
-        return variance ** 0.5
+        values = [r.turns for r in self.runs]
+        return statistics.pstdev(values)
     
     @property
     def mean_avg_info_gain_per_turn(self) -> float:
@@ -110,12 +113,11 @@ class CityStats:
     
     @property
     def std_avg_info_gain_per_turn(self) -> float:
-        """Desvio padrão do ganho de informação médio por turno."""
-        if not self.runs:
+        """Desvio padrão do ganho de informação médio por turno (populacional)."""
+        if not self.runs or self.num_runs == 1:
             return 0.0
-        mean = self.mean_avg_info_gain_per_turn
-        variance = sum((r.avg_info_gain_per_turn - mean) ** 2 for r in self.runs) / self.num_runs
-        return variance ** 0.5
+        values = [r.avg_info_gain_per_turn for r in self.runs]
+        return statistics.pstdev(values)
     
     @property
     def mean_seeker_tokens(self) -> float:
@@ -232,6 +234,186 @@ class ExperimentResults:
         total_tokens = sum(sum(r.seeker_final_tokens for r in city.runs) for city in self.cities.values())
         return total_tokens / self.total_runs
     
+    def _get_all_runs(self) -> list[GameRun]:
+        """Retorna lista de todos os runs de todas as cidades."""
+        return [r for city in self.cities.values() for r in city.runs]
+    
+    @property
+    def std_info_gain(self) -> float:
+        """Desvio padrão global do ganho de informação (calculado sobre médias por cidade).
+        
+        Usa abordagem hierárquica: calcula std sobre as médias de cada cidade,
+        tratando cada cidade como uma unidade de amostragem independente.
+        Isso mede a capacidade de generalização através do domínio geográfico.
+        Usa variância amostral (N-1) para inferência estatística.
+        """
+        if len(self.cities) <= 1:
+            return 0.0
+        city_means = [city.mean_info_gain for city in self.cities.values()]
+        return statistics.stdev(city_means) if len(city_means) > 1 else 0.0
+    
+    @property
+    def std_avg_info_gain_per_turn(self) -> float:
+        """Desvio padrão global do ganho de informação médio por turno (calculado sobre médias por cidade).
+        
+        Usa abordagem hierárquica: calcula std sobre as médias de cada cidade.
+        Usa variância amostral (N-1) para inferência estatística.
+        """
+        if len(self.cities) <= 1:
+            return 0.0
+        city_means = [city.mean_avg_info_gain_per_turn for city in self.cities.values()]
+        return statistics.stdev(city_means) if len(city_means) > 1 else 0.0
+    
+    @property
+    def std_turns(self) -> float:
+        """Desvio padrão global de turnos (calculado sobre médias por cidade).
+        
+        Usa abordagem hierárquica: calcula std sobre as médias de cada cidade.
+        Usa variância amostral (N-1) para inferência estatística.
+        """
+        if len(self.cities) <= 1:
+            return 0.0
+        city_means = [city.mean_turns for city in self.cities.values()]
+        return statistics.stdev(city_means) if len(city_means) > 1 else 0.0
+    
+    @property
+    def std_seeker_tokens(self) -> float:
+        """Desvio padrão global de tokens do Seeker (calculado sobre médias por cidade).
+        
+        Usa abordagem hierárquica: calcula std sobre as médias de cada cidade.
+        Usa variância amostral (N-1) para inferência estatística.
+        """
+        if len(self.cities) <= 1:
+            return 0.0
+        city_means = [city.mean_seeker_tokens for city in self.cities.values()]
+        return statistics.stdev(city_means) if len(city_means) > 1 else 0.0
+    
+    @property
+    def std_seeker_reasoning_tokens(self) -> Optional[float]:
+        """Desvio padrão global de tokens de reasoning (calculado sobre médias por cidade).
+        
+        Retorna None se nenhuma cidade tiver runs com reasoning.
+        Usa abordagem hierárquica: calcula std sobre as médias de cada cidade.
+        Usa variância amostral (N-1) para inferência estatística.
+        """
+        cities_with_reasoning = [
+            city for city in self.cities.values() 
+            if city.mean_seeker_reasoning_tokens is not None
+        ]
+        if len(cities_with_reasoning) <= 1:
+            return None if not cities_with_reasoning else 0.0
+        city_means = [
+            city.mean_seeker_reasoning_tokens 
+            for city in cities_with_reasoning 
+            if city.mean_seeker_reasoning_tokens is not None
+        ]
+        if not city_means:
+            return None
+        return statistics.stdev(city_means) if len(city_means) > 1 else 0.0
+    
+    @property
+    def std_seeker_final_tokens(self) -> float:
+        """Desvio padrão global de tokens da resposta final do Seeker (calculado sobre médias por cidade).
+        
+        Usa abordagem hierárquica: calcula std sobre as médias de cada cidade.
+        Usa variância amostral (N-1) para inferência estatística.
+        """
+        if len(self.cities) <= 1:
+            return 0.0
+        city_means = [city.mean_seeker_final_tokens for city in self.cities.values()]
+        return statistics.stdev(city_means) if len(city_means) > 1 else 0.0
+    
+    @property
+    def se_mean_info_gain(self) -> float:
+        """Standard Error da média global de ganho de informação.
+        
+        Calculado usando std sobre médias por cidade, dividido por sqrt(n_cities).
+        Isso reflete a incerteza ao generalizar para novas cidades.
+        """
+        if len(self.cities) <= 1:
+            return 0.0
+        return self.std_info_gain / (len(self.cities) ** 0.5)
+    
+    @property
+    def se_mean_avg_info_gain_per_turn(self) -> float:
+        """Standard Error da média global de ganho de informação por turno.
+        
+        Calculado usando std sobre médias por cidade, dividido por sqrt(n_cities).
+        """
+        if len(self.cities) <= 1:
+            return 0.0
+        return self.std_avg_info_gain_per_turn / (len(self.cities) ** 0.5)
+    
+    @property
+    def se_mean_turns(self) -> float:
+        """Standard Error da média global de turnos.
+        
+        Calculado usando std sobre médias por cidade, dividido por sqrt(n_cities).
+        """
+        if len(self.cities) <= 1:
+            return 0.0
+        return self.std_turns / (len(self.cities) ** 0.5)
+    
+    @property
+    def se_mean_seeker_tokens(self) -> float:
+        """Standard Error da média global de tokens do Seeker.
+        
+        Calculado usando std sobre médias por cidade, dividido por sqrt(n_cities).
+        """
+        if len(self.cities) <= 1:
+            return 0.0
+        return self.std_seeker_tokens / (len(self.cities) ** 0.5)
+    
+    @property
+    def se_mean_seeker_reasoning_tokens(self) -> Optional[float]:
+        """Standard Error da média global de tokens de reasoning (None se nenhuma cidade tiver reasoning).
+        
+        Calculado usando std sobre médias por cidade, dividido por sqrt(n_cities_com_reasoning).
+        """
+        cities_with_reasoning = [
+            city for city in self.cities.values() 
+            if city.mean_seeker_reasoning_tokens is not None
+        ]
+        if len(cities_with_reasoning) <= 1:
+            return None if not cities_with_reasoning else 0.0
+        std = self.std_seeker_reasoning_tokens
+        if std is None:
+            return None
+        return std / (len(cities_with_reasoning) ** 0.5)
+    
+    @property
+    def se_mean_seeker_final_tokens(self) -> float:
+        """Standard Error da média global de tokens da resposta final do Seeker.
+        
+        Calculado usando std sobre médias por cidade, dividido por sqrt(n_cities).
+        """
+        if len(self.cities) <= 1:
+            return 0.0
+        return self.std_seeker_final_tokens / (len(self.cities) ** 0.5)
+    
+    @property
+    def std_win_rate(self) -> float:
+        """Desvio padrão global do win rate (calculado sobre win rates por cidade).
+        
+        Usa abordagem hierárquica: calcula std sobre os win rates de cada cidade.
+        Usa variância amostral (N-1) para inferência estatística.
+        """
+        if len(self.cities) <= 1:
+            return 0.0
+        city_win_rates = [city.win_rate for city in self.cities.values()]
+        return statistics.stdev(city_win_rates) if len(city_win_rates) > 1 else 0.0
+    
+    @property
+    def se_win_rate(self) -> float:
+        """Standard Error do win rate global.
+        
+        Calculado usando std sobre win rates por cidade, dividido por sqrt(n_cities).
+        Isso reflete a incerteza ao generalizar para novas cidades.
+        """
+        if len(self.cities) <= 1:
+            return 0.0
+        return self.std_win_rate / (len(self.cities) ** 0.5)
+    
     def get_city(self, city_id: str) -> Optional[CityStats]:
         """Retorna estatísticas de uma cidade específica."""
         return self.cities.get(city_id)
@@ -253,13 +435,27 @@ class ExperimentResults:
                 "total_runs": self.total_runs,
                 "total_cities": len(self.cities),
                 "mean_info_gain": round(self.mean_info_gain, 4),
+                "std_info_gain": round(self.std_info_gain, 4),
+                "se_mean_info_gain": round(self.se_mean_info_gain, 4),
                 "mean_avg_info_gain_per_turn": round(self.mean_avg_info_gain_per_turn, 4),
+                "std_avg_info_gain_per_turn": round(self.std_avg_info_gain_per_turn, 4),
+                "se_mean_avg_info_gain_per_turn": round(self.se_mean_avg_info_gain_per_turn, 4),
                 "win_rate": round(self.global_win_rate, 4),
+                "std_win_rate": round(self.std_win_rate, 4),
+                "se_win_rate": round(self.se_win_rate, 4),
                 "mean_turns": round(self.mean_turns, 2),
+                "std_turns": round(self.std_turns, 2),
+                "se_mean_turns": round(self.se_mean_turns, 2),
                 "mean_compliance": round(self.mean_compliance, 4),
                 "mean_seeker_tokens": round(self.mean_seeker_tokens, 0),
+                "std_seeker_tokens": round(self.std_seeker_tokens, 0),
+                "se_mean_seeker_tokens": round(self.se_mean_seeker_tokens, 0),
                 "mean_seeker_reasoning_tokens": round(self.mean_seeker_reasoning_tokens, 0) if self.mean_seeker_reasoning_tokens is not None else None,
+                "std_seeker_reasoning_tokens": round(self.std_seeker_reasoning_tokens, 0) if self.std_seeker_reasoning_tokens is not None else None,
+                "se_mean_seeker_reasoning_tokens": round(self.se_mean_seeker_reasoning_tokens, 0) if self.se_mean_seeker_reasoning_tokens is not None else None,
                 "mean_seeker_final_tokens": round(self.mean_seeker_final_tokens, 0),
+                "std_seeker_final_tokens": round(self.std_seeker_final_tokens, 0),
+                "se_mean_seeker_final_tokens": round(self.se_mean_seeker_final_tokens, 0),
             },
             "by_city": {
                 city_id: {

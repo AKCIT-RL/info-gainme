@@ -9,10 +9,12 @@ import argparse
 import csv
 import json
 import sys
+import math
+import statistics
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from os import getenv
-from typing import List, Set, Dict, Any
+from typing import List, Set, Dict, Any, Optional
 from dotenv import load_dotenv
 
 # Add project root to path
@@ -62,6 +64,58 @@ def find_conversation_dirs_from_runs_csv(
     return sorted(list(conversation_dirs))
 
 
+def load_evaluation_data(conversation_dir: Path) -> Optional[Dict[str, Any]]:
+    """Load evaluation data from question_evaluation.json if it exists.
+    
+    Args:
+        conversation_dir: Path to conversation directory.
+        
+    Returns:
+        Evaluation data dictionary or None if file doesn't exist or is invalid.
+    """
+    output_path = conversation_dir / "question_evaluation.json"
+    if not output_path.exists():
+        return None
+    
+    try:
+        with output_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+            # Check if file is valid
+            if (data.get("turns_evaluation") and 
+                len(data.get("turns_evaluation", [])) > 0 and
+                data.get("summary")):
+                # Calculate missing fields for old files
+                summary = data.get("summary", {})
+                turns_evaluation = data.get("turns_evaluation", [])
+                
+                # Calculate avg_questions_considered_per_turn if missing
+                if "avg_questions_considered_per_turn" not in summary:
+                    valid_turns_considered = [t.get("total_considered") for t in turns_evaluation 
+                                             if "error" not in t and t.get("total_considered") is not None]
+                    summary["avg_questions_considered_per_turn"] = (
+                        sum(valid_turns_considered) / len(valid_turns_considered) 
+                        if valid_turns_considered else 0.0
+                    )
+                
+                # Calculate total_connection_errors if missing
+                if "total_connection_errors" not in summary:
+                    connection_errors = 0
+                    for turn_eval in turns_evaluation:
+                        if "error" not in turn_eval:
+                            questions_eval = turn_eval.get("questions_evaluation", [])
+                            for q_eval in questions_eval:
+                                error_msg = q_eval.get("error", "")
+                                if error_msg and ("Connection error" in error_msg or "Connection" in error_msg.lower()):
+                                    connection_errors += 1
+                    summary["total_connection_errors"] = connection_errors
+                
+                return data
+    except (json.JSONDecodeError, Exception) as e:
+        logger.debug("Failed to load evaluation data from %s: %s", output_path, e)
+    
+    return None
+
+
 def process_single_conversation(
     conversation_dir: Path,
     graph_csv_path: Path,
@@ -79,29 +133,21 @@ def process_single_conversation(
         force: Whether to overwrite existing question_evaluation.json.
         
     Returns:
-        Dictionary with processing result.
+        Dictionary with processing result, including evaluation data if available.
     """
     output_path = conversation_dir / "question_evaluation.json"
     
     # Check if file exists and is valid (not empty/incomplete)
     if output_path.exists() and not force:
-        try:
-            with output_path.open("r", encoding="utf-8") as f:
-                data = json.load(f)
-                # Check if file is valid (has turns_evaluation and summary)
-                if (data.get("turns_evaluation") and 
-                    len(data.get("turns_evaluation", [])) > 0 and
-                    data.get("summary")):
-                    return {
-                        "status": "skipped",
-                        "conversation_dir": str(conversation_dir),
-                        "output_path": str(output_path),
-                        "reason": "already exists and valid"
-                    }
-                # File exists but is empty/incomplete - will reprocess
-        except (json.JSONDecodeError, Exception) as e:
-            # File exists but is corrupted - will reprocess
-            logger.debug("Existing file is corrupted: %s", e)
+        evaluation_data = load_evaluation_data(conversation_dir)
+        if evaluation_data:
+            return {
+                "status": "skipped",
+                "conversation_dir": str(conversation_dir),
+                "output_path": str(output_path),
+                "reason": "already exists and valid",
+                "evaluation_data": evaluation_data
+            }
     
     # Check if required files exist
     required_files = ["seeker_traces.json", "turns.jsonl", "metadata.json"]
@@ -133,7 +179,8 @@ def process_single_conversation(
             "size_bytes": output_path.stat().st_size,
             "turns_evaluated": results["summary"]["total_turns_evaluated"],
             "optimal_choices": results["summary"]["optimal_choices"],
-            "optimal_choice_rate": results["summary"]["optimal_choice_rate"]
+            "optimal_choice_rate": results["summary"]["optimal_choice_rate"],
+            "evaluation_data": results
         }
     except Exception as e:
         logger.error("Error processing %s: %s", conversation_dir, e, exc_info=True)
@@ -143,6 +190,196 @@ def process_single_conversation(
             "output_path": str(output_path),
             "reason": str(e)
         }
+
+
+def calculate_aggregate_summary(results: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """Calculate aggregate statistics from all evaluation results.
+    
+    Args:
+        results: List of processing results, each containing evaluation_data if available.
+        
+    Returns:
+        Dictionary with aggregate statistics.
+    """
+    # Filter results with evaluation data
+    evaluations = []
+    for r in results:
+        if r.get("status") in ("success", "skipped") and r.get("evaluation_data"):
+            evaluations.append(r["evaluation_data"])
+    
+    if not evaluations:
+        return {
+            "total_conversations": 0,
+            "total_evaluated": 0,
+            "total_skipped": 0,
+            "total_errors": 0
+        }
+    
+    # Aggregate statistics
+    total_turns_evaluated = sum(e["summary"]["total_turns_evaluated"] for e in evaluations)
+    total_optimal_choices = sum(e["summary"]["optimal_choices"] for e in evaluations)
+    
+    # Calculate averages
+    optimal_choice_rates = [e["summary"]["optimal_choice_rate"] for e in evaluations]
+    avg_optimal_choice_rate = sum(optimal_choice_rates) / len(optimal_choice_rates) if optimal_choice_rates else 0.0
+    
+    # Info gain statistics
+    # Filter out None and negative values (negative values indicate evaluation errors)
+    avg_chosen_ig_list = [e["summary"]["avg_chosen_info_gain"] for e in evaluations 
+                         if e["summary"].get("avg_chosen_info_gain") is not None 
+                         and e["summary"]["avg_chosen_info_gain"] >= 0.0]
+    avg_optimal_ig_list = [e["summary"]["avg_optimal_info_gain"] for e in evaluations 
+                          if e["summary"].get("avg_optimal_info_gain") is not None 
+                          and e["summary"]["avg_optimal_info_gain"] >= 0.0]
+    
+    avg_chosen_info_gain = sum(avg_chosen_ig_list) / len(avg_chosen_ig_list) if avg_chosen_ig_list else 0.0
+    avg_optimal_info_gain = sum(avg_optimal_ig_list) / len(avg_optimal_ig_list) if avg_optimal_ig_list else 0.0
+    
+    # Average questions considered per turn
+    avg_questions_considered_list = []
+    for e in evaluations:
+        avg_questions = e["summary"].get("avg_questions_considered_per_turn")
+        if avg_questions is None:
+            avg_questions = 0.0
+        avg_questions_considered_list.append(avg_questions)
+    avg_questions_considered_per_turn = (sum(avg_questions_considered_list) / len(avg_questions_considered_list) 
+                                        if avg_questions_considered_list else 0.0)
+    
+    # Total connection errors (use 0 as default for old files)
+    total_connection_errors = sum(e["summary"].get("total_connection_errors", 0) for e in evaluations)
+    
+    # Group by target city
+    by_target: Dict[str, Dict[str, Any]] = {}
+    for e in evaluations:
+        target_id = e["target"]["id"]
+        target_label = e["target"]["label"]
+        
+        if target_id not in by_target:
+            by_target[target_id] = {
+                "target_id": target_id,
+                "target_label": target_label,
+                "conversations": 0,
+                "total_turns_evaluated": 0,
+                "total_optimal_choices": 0,
+                "optimal_choice_rates": [],
+                "avg_chosen_info_gains": [],
+                "avg_optimal_info_gains": [],
+                "avg_questions_considered": [],
+                "total_connection_errors": 0
+            }
+        
+        by_target[target_id]["conversations"] += 1
+        by_target[target_id]["total_turns_evaluated"] += e["summary"]["total_turns_evaluated"]
+        by_target[target_id]["total_optimal_choices"] += e["summary"]["optimal_choices"]
+        by_target[target_id]["optimal_choice_rates"].append(e["summary"]["optimal_choice_rate"])
+        
+        # Filter out negative values (indicate evaluation errors)
+        chosen_ig = e["summary"].get("avg_chosen_info_gain")
+        if chosen_ig is not None and chosen_ig >= 0.0:
+            by_target[target_id]["avg_chosen_info_gains"].append(chosen_ig)
+        optimal_ig = e["summary"].get("avg_optimal_info_gain")
+        if optimal_ig is not None and optimal_ig >= 0.0:
+            by_target[target_id]["avg_optimal_info_gains"].append(optimal_ig)
+        
+        # Average questions considered per turn (use 0.0 as default for old files)
+        avg_questions = e["summary"].get("avg_questions_considered_per_turn")
+        if avg_questions is None:
+            avg_questions = 0.0
+        by_target[target_id]["avg_questions_considered"].append(avg_questions)
+        
+        # Connection errors (use 0 as default for old files)
+        by_target[target_id]["total_connection_errors"] += e["summary"].get("total_connection_errors", 0)
+    
+    # Calculate per-target statistics
+    by_target_summary = {}
+    for target_id, data in by_target.items():
+        rates = data["optimal_choice_rates"]
+        chosen_igs = data["avg_chosen_info_gains"]
+        optimal_igs = data["avg_optimal_info_gains"]
+        avg_questions_list = data["avg_questions_considered"]
+        
+        # Calculate means
+        avg_rate = sum(rates) / len(rates) if rates else 0.0
+        avg_chosen_ig = sum(chosen_igs) / len(chosen_igs) if chosen_igs else None
+        avg_optimal_ig = sum(optimal_igs) / len(optimal_igs) if optimal_igs else None
+        avg_questions = sum(avg_questions_list) / len(avg_questions_list) if avg_questions_list else None
+        
+        # Calculate stds (populacional para cada target, já que temos todas as conversas)
+        std_rate = statistics.pstdev(rates) if len(rates) > 1 else 0.0
+        std_chosen_ig = statistics.pstdev(chosen_igs) if chosen_igs and len(chosen_igs) > 1 else None
+        std_optimal_ig = statistics.pstdev(optimal_igs) if optimal_igs and len(optimal_igs) > 1 else None
+        std_questions = statistics.pstdev(avg_questions_list) if avg_questions_list and len(avg_questions_list) > 1 else None
+        
+        by_target_summary[target_id] = {
+            "target_label": data["target_label"],
+            "conversations": data["conversations"],
+            "total_turns_evaluated": data["total_turns_evaluated"],
+            "total_optimal_choices": data["total_optimal_choices"],
+            "avg_optimal_choice_rate": avg_rate,
+            "std_optimal_choice_rate": std_rate,
+            "avg_chosen_info_gain": avg_chosen_ig,
+            "std_chosen_info_gain": std_chosen_ig,
+            "avg_optimal_info_gain": avg_optimal_ig,
+            "std_optimal_info_gain": std_optimal_ig,
+            "avg_questions_considered_per_turn": avg_questions,
+            "std_questions_considered_per_turn": std_questions,
+            "total_connection_errors": data["total_connection_errors"]
+        }
+    
+    # Count statuses
+    success_count = sum(1 for r in results if r["status"] == "success")
+    skipped_count = sum(1 for r in results if r["status"] == "skipped")
+    error_count = sum(1 for r in results if r["status"] == "error")
+    
+    # Calculate global stds and SEs using hierarchical approach (by target)
+    num_targets = len(by_target_summary)
+    
+    # Collect target-level means for std calculation
+    target_rates = [target["avg_optimal_choice_rate"] for target in by_target_summary.values()]
+    target_chosen_igs = [target["avg_chosen_info_gain"] for target in by_target_summary.values() 
+                         if target["avg_chosen_info_gain"] is not None]
+    target_optimal_igs = [target["avg_optimal_info_gain"] for target in by_target_summary.values() 
+                          if target["avg_optimal_info_gain"] is not None]
+    target_questions = [target["avg_questions_considered_per_turn"] for target in by_target_summary.values() 
+                       if target["avg_questions_considered_per_turn"] is not None]
+    
+    # Calculate stds (amostral para inferência estatística)
+    std_optimal_choice_rate = statistics.stdev(target_rates) if len(target_rates) > 1 else 0.0
+    std_chosen_info_gain = statistics.stdev(target_chosen_igs) if len(target_chosen_igs) > 1 else None
+    std_optimal_info_gain = statistics.stdev(target_optimal_igs) if len(target_optimal_igs) > 1 else None
+    std_questions_considered_per_turn = statistics.stdev(target_questions) if len(target_questions) > 1 else None
+    
+    # Calculate SEs (hierarchical: std / sqrt(num_targets))
+    se_optimal_choice_rate = std_optimal_choice_rate / math.sqrt(num_targets) if num_targets > 1 else 0.0
+    se_chosen_info_gain = std_chosen_info_gain / math.sqrt(len(target_chosen_igs)) if target_chosen_igs and len(target_chosen_igs) > 1 else None
+    se_optimal_info_gain = std_optimal_info_gain / math.sqrt(len(target_optimal_igs)) if target_optimal_igs and len(target_optimal_igs) > 1 else None
+    se_questions_considered_per_turn = std_questions_considered_per_turn / math.sqrt(len(target_questions)) if target_questions and len(target_questions) > 1 else None
+    
+    return {
+        "total_conversations": len(results),
+        "total_evaluated": success_count + skipped_count,
+        "total_success": success_count,
+        "total_skipped": skipped_count,
+        "total_errors": error_count,
+        "aggregate_statistics": {
+            "total_turns_evaluated": total_turns_evaluated,
+            "total_optimal_choices": total_optimal_choices,
+            "avg_optimal_choice_rate": avg_optimal_choice_rate,
+            "std_optimal_choice_rate": std_optimal_choice_rate,
+            "se_optimal_choice_rate": se_optimal_choice_rate,
+            "avg_chosen_info_gain": avg_chosen_info_gain,
+            "std_chosen_info_gain": std_chosen_info_gain,
+            "se_chosen_info_gain": se_chosen_info_gain,
+            "avg_optimal_info_gain": avg_optimal_info_gain,
+            "std_optimal_info_gain": std_optimal_info_gain,
+            "se_optimal_info_gain": se_optimal_info_gain,
+            "avg_questions_considered_per_turn": avg_questions_considered_per_turn,
+            "std_questions_considered_per_turn": std_questions_considered_per_turn,
+            "se_questions_considered_per_turn": se_questions_considered_per_turn,
+            "total_connection_errors": total_connection_errors
+        },
+        "by_target": by_target_summary
+    }
 
 
 def main():
@@ -338,35 +575,37 @@ def main():
                 result["conversation_dir"]
             )
     
-    # Summary statistics
-    success_count = sum(1 for r in results if r["status"] == "success")
-    skipped_count = sum(1 for r in results if r["status"] == "skipped")
-    error_count = sum(1 for r in results if r["status"] == "error")
+    # Calculate aggregate summary
+    aggregate_summary = calculate_aggregate_summary(results)
     
-    # Calculate aggregate statistics from successful evaluations
-    successful_results = [r for r in results if r["status"] == "success"]
-    if successful_results:
-        total_turns = sum(r.get("turns_evaluated", 0) for r in successful_results)
-        total_optimal = sum(r.get("optimal_choices", 0) for r in successful_results)
-        avg_rate = sum(r.get("optimal_choice_rate", 0.0) for r in successful_results) / len(successful_results) if successful_results else 0.0
-        
-        logger.info("\n--- Evaluation Summary ---")
-        logger.info("✅ Sucessos: %d", success_count)
-        logger.info("⏭️  Pulados (já existentes e válidos): %d", skipped_count)
-        logger.info("❌ Erros: %d", error_count)
-        logger.info("Total processado/tentado: %d", len(conversation_dirs))
+    # Log summary
+    logger.info("\n--- Evaluation Summary ---")
+    logger.info("✅ Sucessos: %d", aggregate_summary["total_success"])
+    logger.info("⏭️  Pulados (já existentes e válidos): %d", aggregate_summary["total_skipped"])
+    logger.info("❌ Erros: %d", aggregate_summary["total_errors"])
+    logger.info("Total processado/tentado: %d", aggregate_summary["total_conversations"])
+    
+    if aggregate_summary["total_evaluated"] > 0:
+        stats = aggregate_summary["aggregate_statistics"]
         logger.info("\n--- Aggregate Statistics (from successful evaluations) ---")
-        logger.info("Total turns evaluated: %d", total_turns)
-        logger.info("Total optimal choices: %d", total_optimal)
-        logger.info("Average optimal choice rate: %.2f%%", avg_rate * 100)
-    else:
-        logger.info("\n--- Evaluation Summary ---")
-        logger.info("✅ Sucessos: %d", success_count)
-        logger.info("⏭️  Pulados (já existentes e válidos): %d", skipped_count)
-        logger.info("❌ Erros: %d", error_count)
-        logger.info("Total processado/tentado: %d", len(conversation_dirs))
+        logger.info("Total turns evaluated: %d", stats["total_turns_evaluated"])
+        logger.info("Total optimal choices: %d", stats["total_optimal_choices"])
+        logger.info("Average optimal choice rate: %.2f%%", stats["avg_optimal_choice_rate"] * 100)
+        logger.info("Average chosen info gain: %.4f", stats["avg_chosen_info_gain"])
+        logger.info("Average optimal info gain: %.4f", stats["avg_optimal_info_gain"])
+        logger.info("Average questions considered per turn: %.2f", stats["avg_questions_considered_per_turn"])
+        logger.info("Total connection errors: %d", stats["total_connection_errors"])
     
-    if error_count > 0:
+    # Save aggregate summary to JSON file
+    summary_output_path = args.runs_csv_path.parent / "question_evaluations_summary.json"
+    try:
+        with summary_output_path.open("w", encoding="utf-8") as f:
+            json.dump(aggregate_summary, f, indent=2, ensure_ascii=False)
+        logger.info("\n💾 Aggregate summary saved to: %s", summary_output_path)
+    except Exception as e:
+        logger.error("Failed to save aggregate summary: %s", e, exc_info=True)
+    
+    if aggregate_summary["total_errors"] > 0:
         logger.error("Algumas conversas falharam na avaliação. Verifique os logs acima para detalhes.")
         return 1
     return 0
