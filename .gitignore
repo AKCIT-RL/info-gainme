@@ -1,6 +1,9 @@
 # __pycache__
 __pycache__/
 
+
+.venv/
+
 # .env
 .env
 
@@ -26,7 +29,6 @@ deprecated/
 *egg-info/
 
 .conda/
-.cursor/
 .vscode/
 
 project/
