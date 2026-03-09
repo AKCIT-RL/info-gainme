@@ -105,7 +105,7 @@ start_vllm_server() {
          --pwd /workspace \
          --env HF_TOKEN=${HF_TOKEN} \
          --env VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL} \
-         /raid/user_danielpedrozo/images/vllm-openai_latest.sif \
+         /raid/user_danielpedrozo/images/vllm_openai_latest.sif \
          bash -c "mkdir -p ${dir_name} && ${vllm_cmd} > ${log_file} 2>&1" &
     
     echo "PID do processo ${served_name}: $!"
