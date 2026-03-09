@@ -11,7 +11,7 @@
 # ===============================================
 # CONFIGURAÇÃO
 # ===============================================
-BENCHMARK_CONFIG="${BENCHMARK_CONFIG:-benchmark_config.yaml}"
+BENCHMARK_CONFIG="${1:-${BENCHMARK_CONFIG:-benchmark_config.yaml}}"
 
 PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
 SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm-openai_latest.sif"
