@@ -5,10 +5,12 @@ Loads diseases from CSV (diseases_test.csv or diseases_full.csv).
 Preprocess first: python scripts/prepare_diseases_csv.py
 """
 
+import logging
 from os import getenv
 from dotenv import load_dotenv
 from random import choice
 
+from src.logging_config import setup_logging
 from src.orchestrator import Orchestrator
 from src.agents.llm_config import LLMConfig
 from src.data_types import ObservabilityMode
@@ -16,6 +18,8 @@ from src.domain.diseases import load_flat_disease_candidates
 from src.benchmark_config import BenchmarkConfig
 from pathlib import Path
 import os
+
+logger = logging.getLogger(__name__)
 
 OPENAI_API_KEY = getenv("OPENAI_API_KEY")
 OBSERVABILITY_MODE = ObservabilityMode.FULLY_OBSERVABLE
@@ -30,14 +34,13 @@ os.makedirs(OUTPUT_PATH, exist_ok=True)
 def main() -> None:
     """Run the benchmark with diseases dataset."""
     load_dotenv()
+    setup_logging(debug=True)
 
-    print("Clary Quest - Diseases Benchmark")
-    print("=" * 50)
+    logger.info("Clary Quest - Diseases Benchmark")
 
     pool, domain_config = load_flat_disease_candidates(csv_path=DISEASES_CSV)
     candidates = pool.get_active()
-
-    print(f"Candidate Pool: {len(candidates)} diseases")
+    logger.info("Candidate Pool: %d diseases", len(candidates))
 
     llm_config = LLMConfig(model=MODEL, api_key=OPENAI_API_KEY)
     bm_config = BenchmarkConfig(
@@ -50,6 +53,12 @@ def main() -> None:
     )
 
     target = choice(candidates)
+    symptoms = target.attrs.get("symptoms", [])
+    logger.info(
+        "Target: %s (%s) | symptoms=%d | observability=%s | max_turns=%d | model=%s",
+        target.label, target.id, len(symptoms),
+        bm_config.observability_mode.name, bm_config.max_turns, bm_config.seeker_config.model,
+    )
 
     orchestrator = Orchestrator.from_target(
         target=target,
@@ -62,32 +71,17 @@ def main() -> None:
         domain_config=domain_config,
     )
 
-    print(f"\nConfiguration:")
-    print(f"   - Target: {target.id} ({target.label})")
-    symptoms = target.attrs.get("symptoms", [])
-    print(f"   - Symptoms count: {len(symptoms)}")
-    if symptoms:
-        print(f"   - Sample symptoms: {symptoms[:5]}")
-    print(f"   - Seeker observability: {bm_config.observability_mode.name}")
-    print(f"   - Max turns: {bm_config.max_turns}")
-    print(f"   - Model: {bm_config.seeker_config.model}")
-
-    print(f"\nStarting benchmark run...\n")
-
+    logger.info("Starting benchmark run...")
     orchestrator.run(debug=True)
 
     if orchestrator.turns:
         last_turn = orchestrator.turns[-1]
         if last_turn.answer.game_over:
-            print(
-                f"\nSuccess! Seeker found the target in {len(orchestrator.turns)} turns!"
-            )
+            logger.info("Success! Seeker found the target in %d turns.", len(orchestrator.turns))
         else:
-            print(
-                f"\nGame ended after {len(orchestrator.turns)} turns without finding the target."
-            )
+            logger.info("Game ended after %d turns without finding the target.", len(orchestrator.turns))
 
-    print("\nBenchmark completed!")
+    logger.info("Benchmark completed!")
 
 
 if __name__ == "__main__":

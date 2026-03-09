@@ -4,8 +4,10 @@
 Loads cities from CSV and runs a single game.
 """
 
+import logging
 from os import getenv
 from dotenv import load_dotenv
+from src.logging_config import setup_logging
 from src.orchestrator import Orchestrator
 from src.agents.llm_adapter import LLMConfig
 from src.data_types import ObservabilityMode
@@ -14,6 +16,8 @@ from src.benchmark_config import BenchmarkConfig
 from pathlib import Path
 from random import choice
 import os
+
+logger = logging.getLogger(__name__)
 
 OPENAI_API_KEY = getenv("OPENAI_API_KEY")
 OBSERVABILITY_MODE = ObservabilityMode.PARTIALLY_OBSERVABLE
@@ -28,17 +32,13 @@ os.makedirs(OUTPUT_PATH, exist_ok=True)
 def main() -> None:
     """Run the benchmark demonstration."""
     load_dotenv()
+    setup_logging(debug=True)
 
-    print("Clary Quest - Geographic Benchmark")
-    print("=" * 50)
+    logger.info("Clary Quest - Geographic Benchmark")
 
     pool, domain_config = load_geo_candidates(csv_path=CSV_PATH)
     candidates = pool.get_active()
-
-    print(f"Candidate Pool: {len(candidates)} cities")
-    for c in sorted(candidates, key=lambda c: c.label)[:10]:
-        attrs_str = ", ".join(f"{k}={v}" for k, v in c.attrs.items())
-        print(f"   - {c.id}: {c.label} ({attrs_str})")
+    logger.info("Candidate Pool: %d cities", len(candidates))
 
     llm_config = LLMConfig(model=MODEL, api_key=OPENAI_API_KEY)
     bm_config = BenchmarkConfig(
@@ -50,6 +50,11 @@ def main() -> None:
     )
 
     target = choice(candidates)
+    logger.info(
+        "Target: %s (%s) | observability=%s | max_turns=%d | model=%s",
+        target.label, target.id,
+        bm_config.observability_mode.name, bm_config.max_turns, bm_config.seeker_config.model,
+    )
 
     orchestrator = Orchestrator.from_target(
         target=target,
@@ -61,25 +66,17 @@ def main() -> None:
         max_turns=bm_config.max_turns,
     )
 
-    print(f"\nConfiguration:")
-    print(f"   - Target: {target.id} ({target.label})")
-    print(f"   - Seeker observability: {bm_config.observability_mode.name}")
-    print(f"   - Max turns: {bm_config.max_turns}")
-    print(f"   - Model: {bm_config.seeker_config.model}")
-
-    print(f"\nStarting benchmark run...")
-    print("   (This may take a moment as agents generate responses...)\n")
-
+    logger.info("Starting benchmark run...")
     orchestrator.run(debug=True)
 
     if orchestrator.turns:
         last_turn = orchestrator.turns[-1]
         if last_turn.answer.game_over:
-            print(f"\nSuccess! Seeker found the target in {len(orchestrator.turns)} turns!")
+            logger.info("Success! Seeker found the target in %d turns.", len(orchestrator.turns))
         else:
-            print(f"\nGame ended after {len(orchestrator.turns)} turns without finding the target.")
+            logger.info("Game ended after %d turns without finding the target.", len(orchestrator.turns))
 
-    print("\nBenchmark completed!")
+    logger.info("Benchmark completed!")
 
 
 if __name__ == "__main__":

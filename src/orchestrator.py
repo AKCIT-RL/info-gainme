@@ -6,10 +6,13 @@ computes entropy metrics with `Entropy`, and records `TurnState`.
 
 from __future__ import annotations
 
+import logging
 from typing import List, Optional
 from datetime import datetime
 from pathlib import Path
 import json
+
+logger = logging.getLogger(__name__)
 
 from .entropy import Entropy
 from .candidates import Candidate, CandidatePool
@@ -139,28 +142,32 @@ class Orchestrator:
         return orch
 
     def show_turn(self, turn: TurnState) -> None:
-        """Show the turn state with detailed information."""
-        print(f"\n Turn {turn.turn_index}")
-        print("=" * 50)
-        print(f" Question: {turn.question.text}")
-        print(f" Answer: {turn.answer.text}")
-        print(f" Compliant: {turn.answer.compliant}")
-        if turn.pruning_result:
-            print(f" Pruning Rationale: {turn.pruning_result.rationale}")
-            print(f" Pruned: {turn.pruning_result.pruned_labels}")
-        print(f" Active Candidates: {turn.active_candidates_after}")
-        print(f" Entropy: {turn.h_before:.4f} → {turn.h_after:.4f}")
-        print(f" Info Gain: {turn.info_gain:.4f}")
-        print(f" Pruned count: {turn.pruned_count}")
+        """Log the turn state with detailed information."""
         progress = (turn.turn_index / self._max_turns) * 100
-        print(f" Progress: {progress:.1f}% ({turn.turn_index}/{self._max_turns})")
-        print("-" * 50)
+        pruning_info = ""
+        if turn.pruning_result:
+            pruning_info = (
+                f" | pruned={turn.pruned_count}"
+                f" | rationale={turn.pruning_result.rationale!r}"
+            )
+        logger.info(
+            "Turn %d/%d (%.0f%%) | Q: %s | A: %s | H: %.4f→%.4f | IG: %.4f"
+            " | active=%d%s",
+            turn.turn_index, self._max_turns, progress,
+            turn.question.text,
+            turn.answer.text,
+            turn.h_before, turn.h_after, turn.info_gain,
+            turn.active_candidates_after or 0,
+            pruning_info,
+        )
+        if turn.pruning_result and turn.pruning_result.pruned_labels:
+            logger.debug("Pruned labels: %s", turn.pruning_result.pruned_labels)
 
     def run(self, debug: bool = False, save_plots: bool = False, plots_dir: Optional[Path] = None) -> None:
         """Execute the benchmark loop.
 
         Args:
-            debug: Show detailed turn-by-turn information.
+            debug: Unused — verbosity is controlled by the log level.
             save_plots: Ignored (kept for backward compatibility).
             plots_dir: Ignored (kept for backward compatibility).
         """
@@ -195,8 +202,6 @@ class Orchestrator:
             )
             if pruning_result.pruned_labels:
                 pruned_count = self._pool.prune(pruning_result.pruned_labels)
-                if debug:
-                    print(f" Pruning: {pruning_result.rationale}\n Pruned: {pruning_result.pruned_labels}")
 
             # Seeker integrates oracle's answer
             self._seeker.add_oracle_answer_and_pruning(
@@ -240,20 +245,20 @@ class Orchestrator:
                 self.show_turn(self._turns[-1])
 
             if answer.game_over:
-                if debug:
-                    print(f"\n Game Over! Seeker found the target in {turn} turns!")
+                logger.info("Game over! Target found in %d turns.", turn)
                 break
 
-        if debug and self._turns:
-            print("\n Benchmark Complete!")
-            print("=" * 50)
+        if self._turns:
             summary = self.get_summary()
-            print(f" Total Turns: {summary['turns']}")
-            print(f" Start Entropy: {summary['h_start']:.4f}")
-            print(f" End Entropy: {summary['h_end']:.4f}")
-            print(f" Total Info Gain: {summary['total_info_gain']:.4f}")
-            print(f" Avg Info Gain/Turn: {summary['avg_info_gain_per_turn']:.4f}")
-            print("=" * 50)
+            logger.info(
+                "Benchmark complete | turns=%d | H: %.4f→%.4f"
+                " | total_IG=%.4f | avg_IG/turn=%.4f",
+                summary["turns"],
+                summary["h_start"],
+                summary["h_end"],
+                summary["total_info_gain"],
+                summary["avg_info_gain_per_turn"],
+            )
 
     def get_summary(self) -> dict:
         """Return a simple summary of the run."""

@@ -5,10 +5,13 @@ Runs multiple games across targets and writes incremental results to CSV.
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 from typing import Iterable
 import csv
 import json
+
+logger = logging.getLogger(__name__)
 
 from .benchmark_config import BenchmarkConfig
 from .candidates import Candidate, CandidatePool
@@ -94,7 +97,7 @@ class BenchmarkRunner:
         pool: CandidatePool,
         targets: Iterable[Candidate],
         runs_per_target: int = 1,
-        debug: bool = False,
+        debug: bool = False,  # unused — verbosity controlled by log level
     ) -> Path:
         """Run the benchmark across targets and append results to CSV.
 
@@ -126,12 +129,10 @@ class BenchmarkRunner:
 
                 if (target.id, run_idx) in completed_runs:
                     skipped_count += 1
-                    if debug:
-                        print(f" Skipping {target.label} [{target.id}] run {run_idx}/{runs_per_target} (already completed)")
+                    logger.debug("Skipping %s [%s] run %d/%d (already completed)", target.label, target.id, run_idx, runs_per_target)
                     continue
 
-                if debug:
-                    print(f" Running {target.label} [{target.id}] run {run_idx}/{runs_per_target}")
+                logger.info("Running %s [%s] run %d/%d", target.label, target.id, run_idx, runs_per_target)
 
                 # Reset pool before each game
                 pool.reset()
@@ -195,10 +196,10 @@ class BenchmarkRunner:
                         ]
                     )
 
-        if skipped_count > 0 and debug:
-            print(f"\n Resume Summary:")
-            print(f"   - Total runs planned: {total_planned}")
-            print(f"   - Runs skipped (already completed): {skipped_count}")
-            print(f"   - New runs executed: {total_planned - skipped_count}")
+        if skipped_count > 0:
+            logger.info(
+                "Resume summary | planned=%d | skipped=%d | executed=%d",
+                total_planned, skipped_count, total_planned - skipped_count,
+            )
 
         return csv_path

@@ -14,6 +14,7 @@ No side effects occur on import. The OpenAI client is imported lazily at call ti
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Literal, Optional
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -21,6 +22,8 @@ import os
 import time
 from .llm_config import LLMConfig
 from ..utils.utils import llm_final_content
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -251,8 +254,7 @@ class LLMAdapter:
                 if attempt < max_retries - 1:
                     # Calculate backoff delay: 1s, 2s, 4s, 8s, 16s
                     delay = base_delay * (2 ** attempt)
-                    print(f"⚠️  API error (attempt {attempt + 1}/{max_retries}): {exc}")
-                    print(f"   Retrying in {delay}s...")
+                    logger.warning("API error (attempt %d/%d): %s. Retrying in %ss...", attempt + 1, max_retries, exc, delay)
                     time.sleep(delay)
                 else:
                     # Final attempt failed
