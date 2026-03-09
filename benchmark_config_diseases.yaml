@@ -4,16 +4,19 @@
 
 models:
   seeker:
-    model: "gpt-4o-mini"
+    model: "Qwen3-8B"
+    base_url: "http://localhost:8020/v1"
     timeout: 60.0
 
   oracle:
-    model: "gpt-4o-mini"
-    timeout: 30.0
+    model: "Qwen3-8B"
+    base_url: "http://localhost:8020/v1"
+    timeout: 60.0
 
   pruner:
-    model: "gpt-4o-mini"
-    timeout: 30.0
+    model: "Qwen3-8B"
+    base_url: "http://localhost:8020/v1"
+    timeout: 60.0
 
 game:
   observability_mode: "FULLY_OBSERVABLE"
