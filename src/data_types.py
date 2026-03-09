@@ -34,7 +34,7 @@ class Answer:
 
 
 class PrunerResponse(BaseModel):
-    pruned_labels: list[str]
+    keep_labels: list[str]
     rationale: str
 
 @dataclass
