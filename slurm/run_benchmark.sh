@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=info-gainme-benchmark
-#SBATCH --partition=b200n1
+#SBATCH --partition=h100n2
 #SBATCH --gres=gpu:0
 #SBATCH --mem=32G
 #SBATCH --time=12:00:00
@@ -34,15 +34,9 @@ singularity exec \
     --pwd /workspace/projects/info-gainme_dev \
     "${SINGULARITY_IMAGE}" \
     bash -c "
-        DEPS=/workspace/projects/info-gainme_dev/.deps
-        MARKER=\${DEPS}/.installed
-        if [ ! -f \"\${MARKER}\" ]; then
-            echo 'Instalando dependências...'
-            pip install -r requirements.txt --target \"\${DEPS}\" -q && touch \"\${MARKER}\"
-        else
-            echo 'Dependências já instaladas.'
-        fi
-        PYTHONPATH=\${DEPS}:\$PYTHONPATH /usr/bin/python3 benchmark_runner.py --config '${BENCHMARK_CONFIG}'
+        pip install --user -r requirements.txt 
+        echo 'iniciando benchmark...'
+        python3 benchmark_runner.py --config '${BENCHMARK_CONFIG}'
     "
 
 echo "=========================================="
