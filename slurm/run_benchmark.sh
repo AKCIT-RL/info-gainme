@@ -27,7 +27,22 @@ echo "Nó: $(hostname)"
 echo "=========================================="
 
 DEPS_DIR="${PROJECT_DIR}/.deps"
+DEPS_MARKER="${DEPS_DIR}/.installed"
 mkdir -p "${DEPS_DIR}"
+
+if [ ! -f "${DEPS_MARKER}" ]; then
+    echo "Instalando dependências em ${DEPS_DIR}..."
+    singularity exec \
+        --bind /raid/user_danielpedrozo:/workspace \
+        --bind "/usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/local/cuda/compat/lib/libcuda.so.1" \
+        --pwd /workspace/projects/info-gainme_dev \
+        "${SINGULARITY_IMAGE}" \
+        pip install -r requirements.txt --target /workspace/projects/info-gainme_dev/.deps -q
+    touch "${DEPS_MARKER}"
+    echo "Dependências instaladas."
+else
+    echo "Dependências já instaladas, pulando pip install."
+fi
 
 singularity exec \
     --bind /raid/user_danielpedrozo:/workspace \
@@ -35,7 +50,6 @@ singularity exec \
     --pwd /workspace/projects/info-gainme_dev \
     "${SINGULARITY_IMAGE}" \
     bash -c "
-        pip install -r requirements.txt --target /workspace/projects/info-gainme_dev/.deps -q &&
         PYTHONPATH=/workspace/projects/info-gainme_dev/.deps:\$PYTHONPATH \
         /usr/bin/python3 benchmark_runner.py --config '${BENCHMARK_CONFIG}'
     "
