@@ -12,7 +12,7 @@ from random import choice
 from src.orchestrator import Orchestrator
 from src.agents.llm_config import LLMConfig
 from src.data_types import ObservabilityMode
-from src.domain.diseases import load_flat_disease_graph
+from src.domain.diseases import load_flat_disease_candidates
 from src.benchmark_config import BenchmarkConfig
 from pathlib import Path
 import os
@@ -21,7 +21,6 @@ OPENAI_API_KEY = getenv("OPENAI_API_KEY")
 OBSERVABILITY_MODE = ObservabilityMode.FULLY_OBSERVABLE
 MAX_TURNS = 20
 OUTPUT_PATH = Path("outputs")
-OUTPUT_GRAPH_PATH = OUTPUT_PATH / "sample_diseases_graph.png"
 DISEASES_CSV = Path("data/diseases/diseases_test.csv")
 MODEL = "gpt-4o-mini"
 
@@ -35,17 +34,10 @@ def main() -> None:
     print("Clary Quest - Diseases Benchmark")
     print("=" * 50)
 
-    graph, domain_config = load_flat_disease_graph(csv_path=DISEASES_CSV)
-    active_nodes = graph.get_active_nodes()
-    leaf_nodes = [
-        n
-        for n in active_nodes
-        if n.attrs.get("type") == domain_config.leaf_type
-    ]
+    pool, domain_config = load_flat_disease_candidates(csv_path=DISEASES_CSV)
+    candidates = pool.get_active()
 
-    print(f"Knowledge Graph: {len(leaf_nodes)} diseases")
-
-    graph.plot(output_path=OUTPUT_GRAPH_PATH)
+    print(f"Candidate Pool: {len(candidates)} diseases")
 
     llm_config = LLMConfig(model=MODEL, api_key=OPENAI_API_KEY)
     bm_config = BenchmarkConfig(
@@ -57,11 +49,11 @@ def main() -> None:
         domain_config=domain_config,
     )
 
-    target_node = choice(leaf_nodes)
+    target = choice(candidates)
 
     orchestrator = Orchestrator.from_target(
-        target_node=target_node,
-        graph=graph,
+        target=target,
+        pool=pool,
         seeker_config=bm_config.seeker_config,
         oracle_config=bm_config.oracle_config,
         pruner_config=bm_config.pruner_config,
@@ -71,8 +63,8 @@ def main() -> None:
     )
 
     print(f"\nConfiguration:")
-    print(f"   - Target: {target_node.id} ({target_node.label})")
-    symptoms = target_node.attrs.get("symptoms", [])
+    print(f"   - Target: {target.id} ({target.label})")
+    symptoms = target.attrs.get("symptoms", [])
     print(f"   - Symptoms count: {len(symptoms)}")
     if symptoms:
         print(f"   - Sample symptoms: {symptoms[:5]}")

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Run multi-game benchmark experiments using YAML configuration.
 
-Supports both geographic (geo) and flat object datasets via dataset.type in config.
+Supports both geographic (geo) and flat object/disease datasets via dataset.type in config.
 """
 
 import argparse
@@ -9,9 +9,9 @@ from os import getenv
 from pathlib import Path
 from dotenv import load_dotenv
 
-from src.domain.geo.loader import load_geo_graph
-from src.domain.objects import load_flat_object_graph
-from src.domain.diseases import load_flat_disease_graph
+from src.domain.geo.loader import load_geo_candidates
+from src.domain.objects import load_flat_object_candidates
+from src.domain.diseases import load_flat_disease_candidates
 from src.utils.config_loader import load_benchmark_config
 from src.benchmark import BenchmarkRunner
 
@@ -43,40 +43,16 @@ def main() -> None:
 
     if dataset_type == "objects":
         csv_path = Path(dataset_cfg["csv_path"])
-        graph, domain_config = load_flat_object_graph(csv_path=csv_path)
-        all_targets = sorted(
-            [
-                n
-                for n in graph.nodes
-                if n.attrs.get("type") == domain_config.leaf_type
-            ],
-            key=lambda n: n.id,
-        )
-        target_label = "objects"
+        pool, _ = load_flat_object_candidates(csv_path=csv_path)
+        all_targets = sorted(pool.candidates, key=lambda c: c.id)
     elif dataset_type == "diseases":
         csv_path = Path(dataset_cfg["csv_path"])
-        graph, domain_config = load_flat_disease_graph(csv_path=csv_path)
-        all_targets = sorted(
-            [
-                n
-                for n in graph.nodes
-                if n.attrs.get("type") == domain_config.leaf_type
-            ],
-            key=lambda n: n.id,
-        )
-        target_label = "diseases"
+        pool, _ = load_flat_disease_candidates(csv_path=csv_path)
+        all_targets = sorted(pool.candidates, key=lambda c: c.id)
     else:
         csv_path = Path(dataset_cfg["csv_path"])
-        graph = load_geo_graph(csv_path=csv_path)
-        all_targets = sorted(
-            [
-                n
-                for n in graph.get_active_nodes()
-                if n.attrs.get("type") == "city"
-            ],
-            key=lambda n: n.id,
-        )
-        target_label = "cities"
+        pool, _ = load_geo_candidates(csv_path=csv_path)
+        all_targets = sorted(pool.candidates, key=lambda c: c.id)
 
     targets = all_targets[:num_targets] if num_targets else all_targets
     total_games = len(targets) * runs_per_target
@@ -91,7 +67,7 @@ def main() -> None:
 
     runner = BenchmarkRunner(config=benchmark_config, output_base=output_base)
     csv_path = runner.run(
-        graph=graph,
+        pool=pool,
         targets=targets,
         runs_per_target=runs_per_target,
         debug=debug,
@@ -102,4 +78,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

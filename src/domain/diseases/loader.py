@@ -1,7 +1,6 @@
 """Loader for flat disease dataset from CSV.
 
-Creates a KnowledgeGraph with only leaf nodes - no parent hierarchy.
-Each node represents a disease with associated symptoms in attrs.
+Creates a CandidatePool with one Candidate per disease.
 
 CSV format: disease,symptoms,aliases
 - disease: disease name (e.g. panic disorder)
@@ -14,9 +13,9 @@ from __future__ import annotations
 import csv
 import re
 from pathlib import Path
-from typing import List, Set, Tuple
+from typing import List, Tuple
 
-from ...graph import KnowledgeGraph, Node
+from ...candidates import Candidate, CandidatePool
 from ..types import DomainConfig, DISEASES_DOMAIN
 
 
@@ -33,30 +32,28 @@ def _parse_list(value: str) -> List[str]:
     return [p.strip() for p in value.split(";") if p.strip()]
 
 
-def load_flat_disease_graph(
+def load_flat_disease_candidates(
     csv_path: Path,
     domain_config: DomainConfig = DISEASES_DOMAIN,
-) -> Tuple[KnowledgeGraph, DomainConfig]:
-    """Load a flat knowledge graph from diseases CSV.
+) -> Tuple[CandidatePool, DomainConfig]:
+    """Load a CandidatePool from diseases CSV.
 
     CSV columns: disease, symptoms, aliases
     - disease: disease name
     - symptoms: semicolon-separated list of associated symptoms
     - aliases: optional semicolon-separated alternatives for Oracle matching
 
-    Creates only leaf nodes (diseases). No hierarchy. Symptoms stored in attrs.
-
     Args:
         csv_path: Path to CSV file.
         domain_config: Domain configuration. Defaults to DISEASES_DOMAIN.
 
     Returns:
-        Tuple of (KnowledgeGraph with disease nodes only, DomainConfig).
+        Tuple of (CandidatePool with disease candidates, DomainConfig).
     """
     if not csv_path.exists():
         raise FileNotFoundError(f"Diseases CSV not found: {csv_path}")
 
-    nodes: Set[Node] = set()
+    candidates: list[Candidate] = []
     prefix = domain_config.node_id_prefix.rstrip(":")
     idx = 0
 
@@ -70,24 +67,25 @@ def load_flat_disease_graph(
             aliases = _parse_list(row.get("aliases") or "")
 
             disease_slug = _slug(disease)
-            node_id = f"{prefix}:{disease_slug}:{idx}"
+            candidate_id = f"{prefix}:{disease_slug}:{idx}"
             idx += 1
 
-            attrs: dict = {
-                "type": domain_config.leaf_type,
-                "category": "medical",
-            }
+            attrs: dict = {"category": "medical"}
             if symptoms:
                 attrs["symptoms"] = symptoms
             if aliases:
                 attrs["aliases"] = aliases
 
-            nodes.add(
-                Node(
-                    id=node_id,
+            candidates.append(
+                Candidate(
+                    id=candidate_id,
                     label=disease,
                     attrs=attrs,
                 )
             )
 
-    return KnowledgeGraph(nodes=nodes, edges=set()), domain_config
+    return CandidatePool(candidates=candidates), domain_config
+
+
+# Backward-compatible alias
+load_flat_disease_graph = load_flat_disease_candidates

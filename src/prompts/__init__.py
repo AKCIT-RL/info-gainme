@@ -5,7 +5,6 @@ This module provides utilities to load and manage system prompts from markdown f
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from typing import Dict
 
@@ -78,17 +77,15 @@ def get_oracle_system_prompt(
 
 
 def get_pruner_system_prompt(
-    node_id_prefix: str = "city:",
     target_noun: str = "city",
 ) -> str:
     """Get the PrunerAgent system prompt.
 
     Args:
-        node_id_prefix: Prefix for leaf node IDs (e.g. "city:" or "object:").
-        target_noun: Noun for target in instructions ("city" or "object").
+        target_noun: Noun for target in instructions ("city", "object", "disease").
     """
     content = load_prompt("pruner_system")
-    return content.replace("{NODE_PREFIX}", node_id_prefix).replace("{TARGET_NOUN}", target_noun)
+    return content.replace("{TARGET_NOUN}", target_noun)
 
 
 def get_reasoning_synthesis_prompt() -> str:
