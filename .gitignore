@@ -49,3 +49,5 @@ deprecated/
 project/
 
 outputs/
+
+.deps/
