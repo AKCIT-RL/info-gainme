@@ -66,53 +66,37 @@ echo "Depois acesse:"
 echo "  http://localhost:LOCAL_PORT/v1/models (${MODEL_NAME})"
 echo "=========================================="
 
-# Função para executar o servidor vLLM
-start_vllm_server() {
-    local model=$1
-    local served_name=$2
-    local port=$3
-    local gpu_mem=$4
-    local max_len=$5
-    local log_file=$6
-    local reasoning_parser=${7:-""}  # Parâmetro opcional, padrão vazio
-    
-    echo "Iniciando servidor para ${served_name} na porta ${port}..."
-    
-    # Criar diretório de log se não existir
-    dir_name=$(dirname ${log_file})
-    
-    # Construir comando vLLM com parâmetros opcionais
-    local vllm_cmd="/usr/bin/python3 -m vllm.entrypoints.openai.api_server \
-      --model ${model} \
-      --served-model-name ${served_name} \
-      --download-dir /workspace/hf-cache/hub \
-      --port ${port} \
-      --host 0.0.0.0 \
-      --gpu-memory-utilization ${gpu_mem} \
-      --max-num-seqs 32 \
-      --tensor-parallel-size 1 \
-      --max-model-len ${max_len}"
-    
-    # Adicionar reasoning_parser se fornecido
-    if [ -n "${reasoning_parser}" ]; then
-        vllm_cmd="${vllm_cmd} --reasoning-parser ${reasoning_parser}"
-    fi
-    
-    singularity exec \
-         --nv \
-         --bind /raid/user_danielpedrozo:/workspace \
-         --bind "/usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/local/cuda/compat/lib/libcuda.so.1" \
-         --pwd /workspace \
-         --env HF_TOKEN=${HF_TOKEN} \
-         --env VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL} \
-         /raid/user_danielpedrozo/images/vllm_openai_latest.sif \
-         bash -c "mkdir -p ${dir_name} && ${vllm_cmd} > ${log_file} 2>&1" &
-    
-    echo "PID do processo ${served_name}: $!"
-}
+# Iniciar o servidor vLLM
+echo "Iniciando servidor para ${MODEL_NAME} na porta ${VLLM_PORT}..."
 
-# Iniciar o servidor
-start_vllm_server "${MODEL}" "${MODEL_NAME}" ${VLLM_PORT} ${MODEL_GPU_MEM} ${MODEL_MAX_LEN} "/workspace/projects/info-gainme_dev/logs/${MODEL_NAME}.log" "${MODEL_REASONING_PARSER}"
+# Construir comando vLLM
+vllm_cmd="/usr/bin/python3 -m vllm.entrypoints.openai.api_server \
+  --model ${MODEL} \
+  --served-model-name ${MODEL_NAME} \
+  --download-dir /workspace/hf-cache/hub \
+  --port ${VLLM_PORT} \
+  --host 0.0.0.0 \
+  --gpu-memory-utilization ${MODEL_GPU_MEM} \
+  --max-num-seqs 32 \
+  --tensor-parallel-size 1 \
+  --max-model-len ${MODEL_MAX_LEN}"
+
+# Adicionar reasoning_parser se fornecido
+if [ -n "${MODEL_REASONING_PARSER}" ]; then
+    vllm_cmd="${vllm_cmd} --reasoning-parser ${MODEL_REASONING_PARSER}"
+fi
+
+singularity exec \
+     --nv \
+     --bind /raid/user_danielpedrozo:/workspace \
+     --bind "/usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/local/cuda/compat/lib/libcuda.so.1" \
+     --pwd /workspace \
+     --env HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN} \
+     --env VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL} \
+     /raid/user_danielpedrozo/images/vllm_openai_latest.sif \
+     bash -c "${vllm_cmd}" &
+
+echo "PID do processo ${MODEL_NAME}: $!"
 
 # Aguardar o modelo carregar completamente
 echo "Aguardando carregamento completo do modelo..."
@@ -124,8 +108,6 @@ done
 
 echo "Servidor foi iniciado em background."
 echo "Aguardando finalização do processo..."
-echo "Para acessar os logs, execute:"
-echo "  tail -f /raid/user_danielpedrozo/projects/info-gainme_dev/logs/${MODEL_NAME}.log"
 
 # Aguardar o processo terminar
 wait
