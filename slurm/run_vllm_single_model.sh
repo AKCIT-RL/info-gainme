@@ -42,7 +42,7 @@ echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES}"
 # cache do HF no /workspace para evitar problemas de permissão no /raid
 export HF_HOME=/workspace/hf-cache
 source /raid/user_danielpedrozo/projects/clary_quest/.env
-export HUGGING_FACE_HUB_TOKEN="${HUGGING_FACE_HUB_TOKEN:?HUGGING_FACE_HUB_TOKEN não definido no .env}"
+export HF_TOKEN="${HF_TOKEN:?HF_TOKEN não definido no .env}"
 
 # garantir diretórios no /raid (estes serão mapeados para /workspace no container)
 mkdir -p /raid/user_danielpedrozo/projects/clary_quest/logs
@@ -103,7 +103,7 @@ start_vllm_server() {
          --bind /raid/user_danielpedrozo:/workspace \
          --bind "/usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/local/cuda/compat/lib/libcuda.so.1" \
          --pwd /workspace \
-         --env HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN} \
+         --env HF_TOKEN=${HF_TOKEN} \
          --env VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL} \
          /raid/user_danielpedrozo/images/vllm-openai_latest.sif \
          bash -c "mkdir -p ${dir_name} && ${vllm_cmd} > ${log_file} 2>&1" &
