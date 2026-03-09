@@ -3,9 +3,9 @@
 The PrunerAgent analyzes question-answer pairs and determines which candidates
 should be eliminated from the CandidatePool.
 
-Strategy: the LLM returns `keep_labels` (survivors), not `pruned_labels`.
-This keeps the output small even when many candidates are eliminated — e.g.,
-"not cardiovascular" → keep only ~20 cardio labels instead of listing 750+ others.
+Strategy: the LLM returns `keep_labels` (survivors). Pruned = active - keep_labels.
+This keeps the output small when many candidates are eliminated. Input uses to_text()
+(compact labels only) to keep context usage low.
 """
 
 from __future__ import annotations
@@ -47,11 +47,11 @@ class PrunerAgent:
         question: Question,
         answer: Answer,
         *,
-        target_label: str = None,
+        target_label: str | None = None,
     ) -> PruningResult:
         """Delegate pruning decision to the LLM.
 
-        The LLM returns `keep_labels` (survivors). Pruned = active - keep_labels.
+        The LLM returns the smaller of keep/prune sets (mode field).
         Falls back to no pruning on any parse error to avoid crashing the game.
 
         Args:
@@ -68,7 +68,7 @@ class PrunerAgent:
             target_noun=self.domain_config.target_noun,
         )
 
-        candidates_text = candidate_pool.to_rich_text()
+        candidates_text = candidate_pool.to_text()
 
         user_prompt = (
             "CANDIDATES:\n" + candidates_text + "\n\n" +
@@ -103,13 +103,11 @@ class PrunerAgent:
 
         active_labels = {c.label for c in candidate_pool.get_active()}
 
-        # Validate keep_labels against active pool
         keep_labels = {l for l in keep_labels_raw if l in active_labels}
         unknown = set(keep_labels_raw) - active_labels
         if unknown:
             logger.debug("Pruner returned unknown keep_labels (ignored): %s", unknown)
 
-        # If keep_labels is empty the LLM likely failed — skip pruning
         if not keep_labels:
             logger.warning(
                 "Pruner returned empty keep_labels (turn %d) — skipping pruning.",
@@ -117,7 +115,6 @@ class PrunerAgent:
             )
             return PruningResult(pruned_labels=set(), rationale=f"empty keep_labels: {rationale}")
 
-        # Compute pruned = active - keep
         pruned_labels = active_labels - keep_labels
 
         # CRITICAL: never prune the target
