@@ -8,28 +8,38 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 
 
-def setup_logging(debug: bool = False) -> None:
+def setup_logging(debug: bool = False, log_file: Path | str | None = None) -> None:
     """Configure root logger with a timestamped format.
 
     Args:
         debug: If True, set level to DEBUG; otherwise INFO.
+        log_file: Optional path to write logs to a file (in addition to stdout).
     """
     level = logging.DEBUG if debug else logging.INFO
-
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setLevel(level)
 
     formatter = logging.Formatter(
         fmt="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )
-    handler.setFormatter(formatter)
 
     root = logging.getLogger()
     root.setLevel(level)
-
-    # Avoid duplicate handlers if called multiple times
     root.handlers.clear()
-    root.addHandler(handler)
+
+    # Stdout handler
+    stdout_handler = logging.StreamHandler(sys.stdout)
+    stdout_handler.setLevel(level)
+    stdout_handler.setFormatter(formatter)
+    root.addHandler(stdout_handler)
+
+    # File handler (optional)
+    if log_file:
+        log_path = Path(log_file)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler.setLevel(level)
+        file_handler.setFormatter(formatter)
+        root.addHandler(file_handler)

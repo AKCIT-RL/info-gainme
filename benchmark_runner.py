@@ -42,13 +42,14 @@ def main() -> None:
         return
 
     debug = config["debug"]["enabled"]
-    setup_logging()
-
     dataset_cfg = config.get("dataset", {})
     dataset_type = dataset_cfg.get("type", "geo")
     num_targets = dataset_cfg.get("num_targets")
     runs_per_target = dataset_cfg.get("runs_per_target", 1)
     output_base = Path(config["output"]["base_dir"])
+
+    log_file = output_base / "logs" / f"{benchmark_config.experiment_name}.log"
+    setup_logging(log_file=log_file)
 
     if dataset_type == "objects":
         csv_path = Path(dataset_cfg["csv_path"])
