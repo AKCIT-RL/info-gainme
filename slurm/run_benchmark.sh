@@ -26,12 +26,19 @@ echo "Config: ${BENCHMARK_CONFIG}"
 echo "Nó: $(hostname)"
 echo "=========================================="
 
+DEPS_DIR="${PROJECT_DIR}/.deps"
+mkdir -p "${DEPS_DIR}"
+
 singularity exec \
     --bind /raid/user_danielpedrozo:/workspace \
     --bind "/usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/local/cuda/compat/lib/libcuda.so.1" \
     --pwd /workspace/projects/info-gainme_dev \
     "${SINGULARITY_IMAGE}" \
-    /usr/bin/python3 benchmark_runner.py --config "${BENCHMARK_CONFIG}"
+    bash -c "
+        pip install -r requirements.txt --target /workspace/projects/info-gainme_dev/.deps -q &&
+        PYTHONPATH=/workspace/projects/info-gainme_dev/.deps:\$PYTHONPATH \
+        /usr/bin/python3 benchmark_runner.py --config '${BENCHMARK_CONFIG}'
+    "
 
 echo "=========================================="
 echo "Benchmark finalizado - $(date)"
