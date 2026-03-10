@@ -7,6 +7,9 @@ models:
     model: "Qwen3-8B"
     base_url: "http://localhost:8020/v1"
     timeout: 120.0
+    extra_body:
+      chat_template_kwargs: 
+        enable_thinking: true
 
   oracle:
     model: "Qwen3-8B"
@@ -31,7 +34,7 @@ dataset:
 
 experiment:
   name: "diseases_test_po_cot"
-  max_workers: 12
+  max_workers: 32
 
 output:
   base_dir: "outputs"

@@ -239,8 +239,16 @@ class LLMAdapter:
             try:
                 completion = client.chat.completions.create(**request_kwargs)
 
-                # Grantee that the raw content is not empty
-                raw_content = completion.choices[0].message.content or ""
+                # Build raw_content, prepending reasoning_content if present
+                # (vLLM with Qwen3 thinking returns reasoning in a separate field)
+                message = completion.choices[0].message
+                content = message.content or ""
+                extras = message.model_extra or {}
+                reasoning_content = extras.get("reasoning") or extras.get("reasoning_content")
+                if reasoning_content:
+                    raw_content = f"<think>{reasoning_content}</think>{content}"
+                else:
+                    raw_content = content
                 if not raw_content:
                     raise LLMAdapterError("Empty response from provider.")
                 
