@@ -27,6 +27,7 @@ class SeekerAgent:
         llm_adapter: LLMAdapter,
         observability_mode: ObservabilityMode,
         domain_config: DomainConfig | None = None,
+        max_turns: int = 25,
     ) -> None:
         """Initialize the SeekerAgent.
 
@@ -47,6 +48,7 @@ class SeekerAgent:
         self._llm_adapter = llm_adapter
         self._observability_mode = observability_mode
         self._domain_config = domain_config or GEO_DOMAIN
+        self._max_turns = max_turns
         self._questions_asked = 0
         self._initial_candidates_injected: bool = False
 
@@ -102,7 +104,7 @@ class SeekerAgent:
             candidates_text: Text representation of current active candidates (or None).
             turn: Current turn number.
         """
-        user_answer = f"""[Oracle] - {answer.text}"""
+        user_answer = f"[Turn {turn}/{self._max_turns}] [Oracle] - {answer.text}"
 
         context = self._build_context(candidates_text, turn)
         if context:
@@ -123,7 +125,7 @@ class SeekerAgent:
             return
 
         context = self._build_context(candidates_text, turn)
-        self._llm_adapter.append_history("user", f"[Computer] - {context}")
+        self._llm_adapter.append_history("user", f"[Turn {turn}/{self._max_turns}] [Computer] - {context}")
         self._initial_candidates_injected = True
 
     def _build_context(self, candidates_text: Optional[str], turn: int) -> Optional[str]:

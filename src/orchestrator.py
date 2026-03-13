@@ -115,6 +115,7 @@ class Orchestrator:
             llm_adapter=seeker_adapter,
             observability_mode=observability_mode,
             domain_config=domain_config,
+            max_turns=max_turns,
         )
 
         oracle = OracleAgent(

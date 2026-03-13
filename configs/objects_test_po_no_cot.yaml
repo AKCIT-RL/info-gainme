@@ -22,7 +22,7 @@ models:
 
 game:
   observability_mode: "PARTIALLY_OBSERVABLE"
-  max_turns: 25
+  max_turns: 30
 
 dataset:
   type: "objects"

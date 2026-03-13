@@ -30,7 +30,7 @@ dataset:
   runs_per_target: 3
 
 experiment:
-  name: "top40_po_cot"
+  name: "geo_40_po_cot"
   max_workers: 12
   tags: {}
 

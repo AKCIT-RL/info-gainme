@@ -4,7 +4,8 @@
       "Bash(mv diseases_test_cot.yaml diseases_test_po_cot.yaml)",
       "Bash(mv diseases_test_no_cot.yaml diseases_test_po_no_cot.yaml)",
       "Bash(/raid/user_danielpedrozo/projects/info-gainme_dev/slurm/run_all_tests.sh:*)",
-      "Bash(chmod +x /raid/user_danielpedrozo/projects/info-gainme_dev/slurm/run_all_tests.sh)"
+      "Bash(chmod +x /raid/user_danielpedrozo/projects/info-gainme_dev/slurm/run_all_tests.sh)",
+      "Read(//raid/user_danielpedrozo/projects/info-gainme_dev/**)"
     ]
   }
 }
