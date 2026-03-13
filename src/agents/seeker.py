@@ -58,6 +58,7 @@ class SeekerAgent:
             get_seeker_system_prompt(
                 target_noun=self._domain_config.target_noun,
                 domain_description=self._domain_config.domain_description,
+                max_turns=self._max_turns,
             ),
         )
 
