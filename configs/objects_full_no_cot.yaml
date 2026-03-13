@@ -3,17 +3,18 @@
 
 models:
   seeker:
-    model: "gpt-4o-mini"
-    # model: "Qwen3-8B"
-    # base_url: "http://localhost:8000/v1"
+    model: "Qwen3-8B"
+    base_url: "http://10.100.0.121:8020/v1"
     timeout: 60.0
 
   oracle:
-    model: "gpt-4o-mini"
+    model: "Qwen3-8B"
+    base_url: "http://10.100.0.121:8020/v1"
     timeout: 30.0
 
   pruner:
-    model: "gpt-4o-mini"
+    model: "Qwen3-8B"
+    base_url: "http://10.100.0.121:8020/v1"
     timeout: 30.0
 
 game:

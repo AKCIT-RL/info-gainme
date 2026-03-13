@@ -2,8 +2,8 @@
 # Run: python benchmark_runner.py --config configs/geo_full_cot.yaml
 models:
   seeker:
-    model: "Qwen3-30B-A3B-Instruct-2507"
-    base_url: "http://localhost:8002/v1"
+    model: "Qwen3-8B"
+    base_url: "http://10.100.0.121:8020/v1"
     timeout: 120.0
     extra_body:
       chat_template_kwargs:
@@ -12,12 +12,12 @@ models:
 
   oracle:
     model: "Qwen3-8B"
-    base_url: "http://localhost:8000/v1"
+    base_url: "http://10.100.0.121:8020/v1"
     timeout: 120.0
 
   pruner:
     model: "Qwen3-8B"
-    base_url: "http://localhost:8000/v1"
+    base_url: "http://10.100.0.121:8020/v1"
     timeout: 120.0
 
 game:
