@@ -16,6 +16,8 @@ CONFIGS=(
     configs/objects_test_po_no_cot.yaml
     configs/objects_test_fo_cot.yaml
     configs/objects_test_fo_no_cot.yaml
+    configs/geo_full_cot.yaml
+    configs/geo_full_no_cot.yaml
 )
 
 SBATCH_ARGS=""
@@ -29,7 +31,7 @@ echo "Submetendo ${#CONFIGS[@]} benchmarks de teste"
 echo "=========================================="
 
 for CONFIG in "${CONFIGS[@]}"; do
-    JOB_ID=$(sbatch ${SBATCH_ARGS} "${PROJECT_DIR}/slurm/run_benchmark.sh" "${CONFIG}" | awk '{print $4}')
+    JOB_ID=$(sbatch ${SBATCH_ARGS} "${PROJECT_DIR}/dgx/run_benchmark.sh" "${CONFIG}" | awk '{print $4}')
     echo "  ✓ $CONFIG → job $JOB_ID"
 done
 
