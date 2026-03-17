@@ -2,7 +2,7 @@
 
 import yaml
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 from ..data_types import ObservabilityMode
 from ..agents.llm_config import LLMConfig
@@ -10,19 +10,34 @@ from ..benchmark_config import BenchmarkConfig
 from ..domain.types import GEO_DOMAIN, OBJECTS_DOMAIN, DISEASES_DOMAIN
 
 
+def _load_servers(config_path: Path) -> Dict[str, str]:
+    """Load servers.yaml by walking up from config_path to find the configs/ root."""
+    p = config_path.resolve().parent
+    while p.name != "configs" and p != p.parent:
+        p = p.parent
+    servers_path = p / "servers.yaml"
+    if not servers_path.exists():
+        return {}
+    with servers_path.open("r") as f:
+        data = yaml.safe_load(f)
+    return data.get("servers", {}) if data else {}
+
+
 def load_benchmark_config(config_path: Path, api_key: str) -> tuple[BenchmarkConfig, Dict[str, Any]]:
     """Load benchmark configuration from YAML file.
-    
+
     Args:
         config_path: Path to YAML configuration file.
         api_key: OpenAI API key.
-        
+
     Returns:
         Tuple of (BenchmarkConfig, full_config_dict).
     """
     with config_path.open("r") as f:
         config = yaml.safe_load(f)
-    
+
+    servers = _load_servers(config_path)
+
     # Create LLM configs
     def create_llm_config(model_config: Dict[str, Any]) -> LLMConfig:
         # Extract extra parameters (all non-standard parameters)
@@ -36,10 +51,13 @@ def load_benchmark_config(config_path: Path, api_key: str) -> tuple[BenchmarkCon
             if key not in standard_params:
                 extra_params[key] = value
         
+        model_name = model_config["model"]
+        base_url: Optional[str] = model_config.get("base_url") or servers.get(model_name)
+
         return LLMConfig(
-            model=model_config["model"],
+            model=model_name,
             api_key=api_key,
-            base_url=model_config.get("base_url"),
+            base_url=base_url,
             timeout=model_config.get("timeout"),
             temperature=model_config.get("temperature"),  # Allow None to use model default
             max_tokens=model_config.get("max_tokens"),

@@ -1,0 +1,10 @@
+# Model server endpoints
+# Update this file when IPs or ports change — do NOT edit individual configs for this.
+#
+# Format:
+#   <served-model-name>: "<base_url>"
+
+servers:
+  Qwen3-8B: "http://10.100.0.121:8021/v1"
+  Qwen3-30B-A3B-Thinking-2507: "http://10.100.0.121:8020/v1"
+  Qwen3-30B-A3B-Instruct-2507: "http://10.100.0.121:8020/v1"

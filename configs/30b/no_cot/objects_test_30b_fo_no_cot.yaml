@@ -4,7 +4,6 @@
 models:
   seeker:
     model: "Qwen3-30B-A3B-Instruct-2507"
-    base_url: "http://10.100.0.121:8020/v1"
     timeout: 180.0
     extra_body:
       chat_template_kwargs:
@@ -12,12 +11,10 @@ models:
 
   oracle:
     model: "Qwen3-8B"
-    base_url: "http://10.100.0.121:8021/v1"
     timeout: 120.0
 
   pruner:
     model: "Qwen3-8B"
-    base_url: "http://10.100.0.121:8021/v1"
     timeout: 120.0
 
 game:
