@@ -1,16 +1,15 @@
 # Benchmark Configuration - Diseases Dataset (773 diseases)
-# Run: python benchmark_runner.py --config configs/diseases_full_cot_remote.yaml
+# Run: python benchmark_runner.py --config configs/diseases_test_cot.yaml
 # Preprocess first: python scripts/prepare_diseases_csv.py
 
 models:
   seeker:
-    model: "Qwen3-8B"
-    base_url: "http://10.100.0.121:8020/v1"
-    timeout: 120.0
+    model: "Qwen3-30B-A3B-Thinking-2507"
+    base_url: "http://10.100.0.121:8021/v1"
+    timeout: 180.0
     extra_body:
       chat_template_kwargs: 
         enable_thinking: true
-
 
   oracle:
     model: "Qwen3-8B"
@@ -29,13 +28,13 @@ game:
 
 dataset:
   type: "diseases"
-  csv_path: "data/diseases/diseases_full.csv"
+  csv_path: "data/diseases/diseases_test.csv"
   num_targets: null
   runs_per_target: 1
 
 experiment:
-  name: "diseases_full_po_cot"
-  max_workers: 12
+  name: "diseases_test_30b_po_cot"
+  max_workers: 16
 
 output:
   base_dir: "outputs"

@@ -13,7 +13,7 @@ umask 002
 # ===============================================
 # CONFIGURAÇÃO
 # ===============================================
-BENCHMARK_CONFIG="${1:-${BENCHMARK_CONFIG:-configs/geo_full_no_cot.yaml}}"
+BENCHMARK_CONFIG="${1:-${BENCHMARK_CONFIG:-configs/8b/geo_full_no_cot.yaml}}"
 SHARED_GROUP="sd22"
 
 PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
