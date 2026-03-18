@@ -10,6 +10,9 @@ PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
 DEPENDENCY=""
 TARGET="${1:-configs/8b}"
 
+# Resolve TARGET relative to PROJECT_DIR if not absolute
+[[ "${TARGET}" != /* ]] && TARGET="${PROJECT_DIR}/${TARGET}"
+
 # Parse args
 shift || true
 while [[ $# -gt 0 ]]; do
