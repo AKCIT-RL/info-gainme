@@ -1,5 +1,5 @@
-# Benchmark Configuration - Objects Test (34 objects, PO + no COT)
-# Run: python benchmark_runner.py --config configs/objects_test_po_no_cot.yaml
+# Benchmark Configuration - Objects Test (34 objects, PO + COT)
+# Run: python benchmark_runner.py --config configs/objects_test_po_cot.yaml
 
 models:
   seeker:
@@ -7,7 +7,7 @@ models:
     timeout: 120.0
     extra_body:
       chat_template_kwargs:
-        enable_thinking: false
+        enable_thinking: true
 
   oracle:
     model: "Qwen3-8B"
@@ -28,7 +28,7 @@ dataset:
   runs_per_target: 1
 
 experiment:
-  name: "objects_test_po_no_cot"
+  name: "objects_34_po_cot"
   max_workers: 16
 
 output:
