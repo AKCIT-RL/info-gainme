@@ -25,6 +25,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 from tqdm import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
@@ -40,7 +41,7 @@ OUTPUTS_BASE = project_root / "outputs"  # project_root já é a raiz do projeto
 
 
 def find_runs_csvs(base_dir: Path) -> list[Path]:
-    return sorted(base_dir.rglob("runs.csv"))
+    return sorted(p for p in base_dir.rglob("runs.csv") if "_cot" in p.parent.name)
 
 
 def conversation_dirs_from_csv(runs_csv: Path) -> list[Path]:
@@ -72,7 +73,13 @@ def process_conversation(conv_dir: Path, llm_config: LLMConfig) -> tuple[Path, b
         return conv_dir, False, str(e)
 
 
-def process_runs_csv(runs_csv: Path, llm_config: LLMConfig, max_workers: int) -> None:
+def process_runs_csv(
+    runs_csv: Path,
+    llm_config: LLMConfig,
+    max_workers: int,
+    *,
+    tqdm_nested: bool = False,
+) -> None:
     conv_dirs = conversation_dirs_from_csv(runs_csv)
     if not conv_dirs:
         logger.warning("Nenhuma conversa encontrada em %s", runs_csv)
@@ -89,7 +96,10 @@ def process_runs_csv(runs_csv: Path, llm_config: LLMConfig, max_workers: int) ->
             total=len(futures),
             desc=f"Sintetizando [{experiment}]",
             unit="conv",
-            leave=True,
+            position=1 if tqdm_nested else 0,
+            leave=not tqdm_nested,
+            dynamic_ncols=True,
+            file=sys.stderr,
         )
         for future in bar:
             _, success, msg = future.result()
@@ -124,13 +134,22 @@ def main() -> None:
         timeout=120.0,
     )
 
-    if args.all:
-        runs_csvs = find_runs_csvs(OUTPUTS_BASE)
-        logger.info("🔎 %d runs.csv encontrados", len(runs_csvs))
-        for runs_csv in tqdm(runs_csvs, desc="Experimentos (runs.csv)", unit="exp"):
-            process_runs_csv(runs_csv, llm_config, args.workers)
-    else:
-        process_runs_csv(args.runs, llm_config, args.workers)
+    with logging_redirect_tqdm():
+        if args.all:
+            runs_csvs = find_runs_csvs(OUTPUTS_BASE)
+            logger.info("🔎 %d runs.csv encontrados", len(runs_csvs))
+            for runs_csv in tqdm(
+                runs_csvs,
+                desc="Experimentos (runs.csv)",
+                unit="exp",
+                position=0,
+                leave=True,
+                dynamic_ncols=True,
+                file=sys.stderr,
+            ):
+                process_runs_csv(runs_csv, llm_config, args.workers, tqdm_nested=True)
+        else:
+            process_runs_csv(args.runs, llm_config, args.workers, tqdm_nested=False)
 
     logger.info("✅ Concluído.")
 
