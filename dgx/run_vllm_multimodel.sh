@@ -3,7 +3,7 @@
 #SBATCH --partition=h100n2          
 #SBATCH --gres=gpu:1
 #SBATCH --mem=30G
-#SBATCH --time=12:00:00
+#SBATCH --time=4-00:00:00
 #SBATCH --output=/raid/user_danielpedrozo/projects/info-gainme_dev/logs/%x-%j.out
 
 # portas dos servidores (interna ao nó)
