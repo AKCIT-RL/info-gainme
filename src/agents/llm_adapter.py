@@ -231,10 +231,11 @@ class LLMAdapter:
                     {"role": "user", "content": f"{system_msg}\n\nSTARTING GAME!."}
                 ]
 
-        # Retry logic with exponential backoff
+        # Retry logic with exponential backoff (capped) + Retry-After for 429s
         max_retries = 50
-        base_delay = 1.0  # seconds
-        
+        base_delay = 1.0   # seconds
+        max_delay = 60.0   # cap so backoff never exceeds 1 minute
+
         for attempt in range(max_retries):
             try:
                 completion = client.chat.completions.create(**request_kwargs)
@@ -251,7 +252,7 @@ class LLMAdapter:
                     raw_content = content
                 if not raw_content:
                     raise LLMAdapterError("Empty response from provider.")
-                
+
                 # Clean content for return
                 final_content = llm_final_content(raw_content)
                 if not final_content:
@@ -260,9 +261,25 @@ class LLMAdapter:
                 break  # Success, exit retry loop
             except Exception as exc:
                 if attempt < max_retries - 1:
-                    # Calculate backoff delay: 1s, 2s, 4s, 8s, 16s
-                    delay = base_delay * (2 ** attempt)
-                    logger.warning("API error (attempt %d/%d): %s. Retrying in %ss...", attempt + 1, max_retries, exc, delay)
+                    # Honour Retry-After header for 429 rate-limit responses
+                    retry_after = None
+                    try:
+                        from openai import RateLimitError as _RLE
+                        if isinstance(exc, _RLE):
+                            retry_after = float(
+                                getattr(getattr(exc, "response", None), "headers", {}).get("retry-after", 0)
+                                or getattr(exc, "retry_after", 0)
+                                or 0
+                            ) or None
+                    except Exception:
+                        pass
+
+                    if retry_after and retry_after > 0:
+                        delay = retry_after
+                    else:
+                        delay = min(base_delay * (2 ** attempt), max_delay)
+
+                    logger.warning("API error (attempt %d/%d): %s. Retrying in %.1fs...", attempt + 1, max_retries, exc, delay)
                     time.sleep(delay)
                 else:
                     # Final attempt failed

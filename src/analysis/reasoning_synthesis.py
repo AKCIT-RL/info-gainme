@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -142,63 +143,79 @@ def extract_oracle_answer(message_content: str) -> str:
 
 def create_turn_based_traces(
     seeker_data: Dict[str, Any],
-    llm_adapter: LLMAdapter
+    llm_adapter: LLMAdapter,
+    turn_workers: int = 4,
 ) -> List[Dict[str, Any]]:
     """Create turn-based traces similar to seeker.json structure.
-    
+
+    Turns within a conversation are synthesized in parallel (up to
+    ``turn_workers`` concurrent LLM calls).
+
     Args:
         seeker_data: The loaded seeker conversation data.
-        llm_adapter: LLM adapter for synthesis.
-        
+        llm_adapter: LLM adapter for synthesis (stateless calls, thread-safe).
+        turn_workers: Max parallel LLM calls per conversation.
+
     Returns:
-        List of turn-based traces.
+        List of turn-based traces, ordered by turn index.
     """
     reasoning_history = seeker_data.get("reasoning_history", [])
     history = seeker_data.get("history", [])
-    
+
     # Pre-filter messages for better performance
     reasoning_msgs = [
-        msg for msg in reasoning_history 
+        msg for msg in reasoning_history
         if msg.get("role") == "assistant" and extract_reasoning_from_message(msg)
     ]
-    
+
     assistant_msgs = [
         (i, msg) for i, msg in enumerate(history)
         if msg.get("role") == "assistant" and not msg.get("content", "").startswith("# SeekerAgent")
     ]
-    
-    # Log processing info
-    logger.info("Processing %d reasoning traces for synthesis", len(reasoning_msgs))
-    
-    turns = []
-    
-    # Match each assistant question with its reasoning and oracle answer
+
+    # Collect all turns that need synthesis
+    to_synthesize = []
     for i, (hist_idx, assistant_msg) in enumerate(assistant_msgs):
         question = assistant_msg.get("content", "").strip()
-        
-        # Find oracle answer more efficiently
         oracle_answer = _find_oracle_answer(history, hist_idx)
-        
-        # Get corresponding reasoning
         reasoning_text = None
         if i < len(reasoning_msgs):
             reasoning_text = extract_reasoning_from_message(reasoning_msgs[i])
-        
         if reasoning_text:
+            to_synthesize.append((i, reasoning_text, question, oracle_answer))
+
+    logger.info("Processing %d reasoning traces for synthesis", len(to_synthesize))
+
+    if not to_synthesize:
+        return []
+
+    # Synthesize all turns in parallel, preserving insertion order
+    turns_dict: Dict[int, Dict[str, Any]] = {}
+    with ThreadPoolExecutor(max_workers=min(turn_workers, len(to_synthesize))) as executor:
+        future_to_meta = {
+            executor.submit(synthesize_reasoning_trace, reasoning_text, llm_adapter): (i, reasoning_text, question, oracle_answer)
+            for i, reasoning_text, question, oracle_answer in to_synthesize
+        }
+        for future in as_completed(future_to_meta):
+            i, reasoning_text, question, oracle_answer = future_to_meta[future]
             try:
-                reasoning_trace = synthesize_reasoning_trace(reasoning_text, llm_adapter)
-                turns.append({
-                    'turn_index': i + 1,
+                reasoning_trace = future.result()
+                turns_dict[i] = {
+                    "turn_index": i + 1,
                     "original_reasoning": reasoning_text,
                     "reasoning_trace": reasoning_trace,
                     "question": question,
-                    "oracle_answer": oracle_answer
-                })
+                    "oracle_answer": oracle_answer,
+                }
             except Exception as e:
-                logger.warning("Failed to synthesize reasoning for question '%s': %s", 
-                              question[:50] + "..." if len(question) > 50 else question, e)
-    
-    return turns
+                logger.warning(
+                    "Failed to synthesize reasoning for question '%s': %s",
+                    question[:50] + "..." if len(question) > 50 else question,
+                    e,
+                )
+
+    # Restore turn order
+    return [turns_dict[i] for i, *_ in to_synthesize if i in turns_dict]
 
 
 def _find_oracle_answer(history: List[Dict[str, Any]], start_idx: int) -> str:
@@ -221,27 +238,29 @@ def _find_oracle_answer(history: List[Dict[str, Any]], start_idx: int) -> str:
 def create_seeker_traces_file(
     input_path: Path,
     output_path: Path,
-    llm_config: LLMConfig
+    llm_config: LLMConfig,
+    turn_workers: int = 4,
 ) -> None:
     """Create seeker_traces.json from seeker.json file.
-    
+
     Args:
         input_path: Path to input seeker.json file.
         output_path: Path where seeker_traces.json will be saved.
         llm_config: LLM configuration for synthesis.
-        
+        turn_workers: Max parallel LLM calls per conversation.
+
     Raises:
         FileNotFoundError: If input file doesn't exist.
         ValueError: If processing fails.
     """
     # Load seeker conversation data
     seeker_data = load_seeker_conversation(input_path)
-    
+
     # Create LLM adapter for synthesis
     llm_adapter = LLMAdapter(llm_config, save_history=False)
-    
-    # Create turn-based traces
-    turns = create_turn_based_traces(seeker_data, llm_adapter)
+
+    # Create turn-based traces (turns parallelised internally)
+    turns = create_turn_based_traces(seeker_data, llm_adapter, turn_workers=turn_workers)
     
     # Create output data structure similar to seeker.json
     output_data = {

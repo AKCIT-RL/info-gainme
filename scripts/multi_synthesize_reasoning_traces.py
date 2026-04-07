@@ -59,7 +59,7 @@ def conversation_dirs_from_csv(runs_csv: Path) -> list[Path]:
     return dirs
 
 
-def process_conversation(conv_dir: Path, llm_config: LLMConfig) -> tuple[Path, bool, str]:
+def process_conversation(conv_dir: Path, llm_config: LLMConfig, turn_workers: int = 4) -> tuple[Path, bool, str]:
     seeker_json = conv_dir / "seeker.json"
     traces_json = conv_dir / "seeker_traces.json"
 
@@ -70,7 +70,7 @@ def process_conversation(conv_dir: Path, llm_config: LLMConfig) -> tuple[Path, b
         return conv_dir, True, "já existe (skip)"
 
     try:
-        create_seeker_traces_file(seeker_json, traces_json, llm_config)
+        create_seeker_traces_file(seeker_json, traces_json, llm_config, turn_workers=turn_workers)
         return conv_dir, True, "ok"
     except Exception as e:
         return conv_dir, False, str(e)
@@ -80,6 +80,7 @@ def process_runs_csv(
     runs_csv: Path,
     llm_config: LLMConfig,
     max_workers: int,
+    turn_workers: int = 4,
     *,
     tqdm_nested: bool = False,
 ) -> None:
@@ -93,7 +94,7 @@ def process_runs_csv(
 
     ok = skip = fail = 0
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(process_conversation, d, llm_config): d for d in conv_dirs}
+        futures = {executor.submit(process_conversation, d, llm_config, turn_workers): d for d in conv_dirs}
         bar = tqdm(
             as_completed(futures),
             total=len(futures),
@@ -125,7 +126,8 @@ def main() -> None:
     group.add_argument("--runs", type=Path, help="Caminho para um runs.csv específico")
     parser.add_argument("--model", default="gpt-4o-mini", help="Modelo LLM para síntese")
     parser.add_argument("--base-url", default=None, help="Base URL do servidor LLM (padrão: OpenAI)")
-    parser.add_argument("--workers", type=int, default=8, help="Threads paralelas por experimento")
+    parser.add_argument("--workers", type=int, default=8, help="Conversas paralelas por experimento")
+    parser.add_argument("--turn-workers", type=int, default=4, help="Chamadas LLM paralelas por conversa")
     args = parser.parse_args()
 
     import os
@@ -141,6 +143,8 @@ def main() -> None:
         if args.all:
             runs_csvs = find_runs_csvs(OUTPUTS_BASE)
             logger.info("🔎 %d runs.csv encontrados", len(runs_csvs))
+            logger.info("⚙️  workers=%d  turn-workers=%d  (max concurrent LLM calls ≈ %d)",
+                        args.workers, args.turn_workers, args.workers * args.turn_workers)
             for runs_csv in tqdm(
                 runs_csvs,
                 desc="Experimentos (runs.csv)",
@@ -150,9 +154,9 @@ def main() -> None:
                 dynamic_ncols=True,
                 file=sys.stderr,
             ):
-                process_runs_csv(runs_csv, llm_config, args.workers, tqdm_nested=True)
+                process_runs_csv(runs_csv, llm_config, args.workers, args.turn_workers, tqdm_nested=True)
         else:
-            process_runs_csv(args.runs, llm_config, args.workers, tqdm_nested=False)
+            process_runs_csv(args.runs, llm_config, args.workers, args.turn_workers, tqdm_nested=False)
 
     logger.info("✅ Concluído.")
 
