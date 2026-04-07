@@ -1,14 +1,13 @@
 #!/bin/bash
-# Submete benchmarks via SLURM
+# Executa benchmarks via screen
 #
 # Uso:
 #   ./dgx/run_all_tests.sh configs/8b/diseases_test_po_cot.yaml   # um yaml
 #   ./dgx/run_all_tests.sh configs/30b/cot/                       # pasta inteira
-#   ./dgx/run_all_tests.sh configs/30b/cot/ --dep 16130           # com dependency
 
 PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
-DEPENDENCY=""
 TARGET="${1:-configs/8b}"
+SCREEN_PREFIX="${SCREEN_PREFIX:-info-gainme-benchmark}"
 
 # Resolve TARGET relative to PROJECT_DIR if not absolute
 [[ "${TARGET}" != /* ]] && TARGET="${PROJECT_DIR}/${TARGET}"
@@ -17,7 +16,10 @@ TARGET="${1:-configs/8b}"
 shift || true
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --dep) DEPENDENCY="$2"; shift 2 ;;
+        --dep)
+            echo "AVISO: --dep é ignorado quando executando via screen."
+            shift 2
+            ;;
         *)     echo "Arg desconhecido: $1"; exit 1 ;;
     esac
 done
@@ -32,20 +34,24 @@ else
     exit 1
 fi
 
-SBATCH_ARGS=""
-[ -n "${DEPENDENCY}" ] && SBATCH_ARGS="--dependency=after:${DEPENDENCY}"
+mkdir -p "${PROJECT_DIR}/logs/screen"
 
 echo "=========================================="
-echo "Submetendo ${#CONFIGS[@]} benchmark(s)"
+echo "Iniciando ${#CONFIGS[@]} benchmark(s) via screen"
 echo "Target: ${TARGET}"
-[ -n "${DEPENDENCY}" ] && echo "Dependency: after:${DEPENDENCY}"
+echo "Sessões screen serão criadas com prefixo: ${SCREEN_PREFIX}"
 echo "=========================================="
 
 for CONFIG in "${CONFIGS[@]}"; do
-    JOB_ID=$(sbatch ${SBATCH_ARGS} "${PROJECT_DIR}/dgx/run_benchmark.sh" "${CONFIG}" | awk '{print $4}')
-    echo "  ✓ $(basename ${CONFIG}) → job ${JOB_ID}"
+    BASE_NAME="$(basename "${CONFIG}")"
+    BASE_NAME="${BASE_NAME%.yaml}"
+    SESSION_NAME="${SCREEN_PREFIX}-${BASE_NAME}"
+    LOG_FILE="${PROJECT_DIR}/logs/screen/${SESSION_NAME}.log"
+
+    screen -dmS "${SESSION_NAME}" bash -lc "cd '${PROJECT_DIR}' && bash dgx/run_benchmark.sh '${CONFIG}' >'${LOG_FILE}' 2>&1"
+    echo "  ✓ $(basename ${CONFIG}) → screen ${SESSION_NAME}"
 done
 
 echo "=========================================="
-echo "Todos submetidos. Acompanhe com: squeue -u \$USER"
+echo "Todos iniciados. Acompanhe com: screen -ls"
 echo "=========================================="

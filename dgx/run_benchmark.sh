@@ -2,8 +2,8 @@
 #SBATCH --job-name=info-gainme-benchmark
 #SBATCH --partition=h100n2
 #SBATCH --gres=gpu:0
-#SBATCH --mem=32G
-#SBATCH --time=12:00:00
+#SBATCH --mem=4G
+#SBATCH --time=1-00:00:00
 #SBATCH --ntasks=1
 #SBATCH --output='/raid/user_danielpedrozo/projects/info-gainme_dev/logs/%x-%j.out'
 

@@ -4,12 +4,14 @@
 # Format:
 #   <served-model-name>: "<base_url>"
 
-servers:
-  # Qwen3-8B: "http://10.100.0.121:8021/v1"
-  # Qwen3-30B-A3B-Thinking-2507: "http://10.100.0.121:8020/v1"
-  # Qwen3-30B-A3B-Instruct-2507: "http://10.100.0.121:8020/v1"
+# H100-02: 10.100.0.112
+# H100-03: 10.100.0.113
+# B200-1: 10.100.0.121
 
-  Qwen3-8B: "http://localhost:8020/v1"
-  Qwen3-30B-A3B-Thinking-2507: "http://localhost:8022/v1"
-  Qwen3-30B-A3B-Instruct-2507: "http://localhost:8022/v1"
-  Qwen3-4B-Thinking-2507: "http://localhost:8021/v1"
+servers:
+  Qwen3-8B: "http://10.100.0.113:8028/v1"
+  Qwen3-30B-A3B-Thinking-2507: "http://10.100.0.121:8029/v1"
+  # Qwen3-30B-A3B-Instruct-2507: "http://10.100.0.113:8022/v1"
+  Qwen3-4B-Thinking-2507: "http://10.100.0.112:8021/v1"
+  Qwen3-4B-Instruct-2507: "http://10.100.0.113:8026/v1"
+  Qwen3-0.6B: "http://10.100.0.113:8025/v1"
