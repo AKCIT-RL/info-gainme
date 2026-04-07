@@ -24,35 +24,44 @@ from src.analysis.loader import load_experiment_results
 from src.analysis.writer import save_summary, save_city_variance
 
 
-def _analyze_single_csv(csv_path_str: str, verbose: bool = True) -> tuple[str, int]:
+def _analyze_single_csv(csv_path_str: str, verbose: bool = True, force: bool = False) -> tuple[str, int]:
     """Executa a análise para um único arquivo runs.csv.
-    
+
     Args:
         csv_path_str: Caminho (string) para o arquivo runs.csv
         verbose: Se True, imprime informações detalhadas
-        
+        force: Se True, re-analisa mesmo que summary.json já exista e esteja atualizado
+
     Returns:
         Tupla (csv_path_str, exit_code) onde exit_code é 0 para sucesso, 1 para erro
     """
     # Garantir sys.path para processos separados (imports dentro da função)
     import sys
     from pathlib import Path
-    
+
     # Calcular repo_root baseado no caminho do script
     script_dir = Path(__file__).parent if '__file__' in globals() else Path.cwd()
     repo_root = script_dir.parent
     if str(repo_root) not in sys.path:
         sys.path.insert(0, str(repo_root))
-    
+
     # Importar aqui para garantir que sys.path está configurado
     from src.analysis.loader import load_experiment_results
     from src.analysis.writer import save_summary, save_city_variance
-    
+
     csv_path = Path(csv_path_str)
     if not csv_path.exists():
         if verbose:
             print(f"❌ CSV não encontrado: {csv_path}")
         return (csv_path_str, 1)
+
+    # Pular se summary.json já existe e é mais recente que runs.csv
+    if not force:
+        summary_path = csv_path.parent / "summary.json"
+        if summary_path.exists() and summary_path.stat().st_mtime >= csv_path.stat().st_mtime:
+            if verbose:
+                print(f"⏭️  Pulando (summary.json atualizado): {csv_path}")
+            return (csv_path_str, 0)
 
     if verbose:
         print(f"\n{'='*70}")

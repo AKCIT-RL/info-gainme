@@ -59,26 +59,42 @@ def load_experiment_results(csv_path: Path) -> ExperimentResults:
             # csv_dir está em outputs/models/.../experiment_name/
             # Precisamos subir até outputs/ e então adicionar conversation_path
             output_base = csv_dir.parent.parent.parent  # outputs/
-            seeker_json_path = output_base / conversation_path / "seeker.json"
+            conv_dir = output_base / conversation_path
+            seeker_json_path = conv_dir / "seeker.json"
+            token_cache_path = conv_dir / "token_cache.json"
+
             if seeker_json_path.exists():
                 try:
-                    with seeker_json_path.open("r", encoding="utf-8") as f:
-                        seeker_data = json.load(f)
-                    
-                    reasoning_history = seeker_data.get("reasoning_history", [])
-                    history = seeker_data.get("history", [])
-                    model = seeker_data.get("config", {}).get("model")
-                    
-                    total, reasoning, final = count_seeker_tokens(
-                        reasoning_history, history, model
-                    )
-                    seeker_total_tokens = total
-                    seeker_reasoning_tokens = reasoning
-                    seeker_final_tokens = final
-                except Exception as e:
-                    # Se falhar ao carregar tokens, usar valores padrão (0)
-                    # Debug: descomente a linha abaixo para ver erros
-                    # import traceback; traceback.print_exc()
+                    # Usar cache se existir e for mais novo que seeker.json
+                    if (
+                        token_cache_path.exists()
+                        and token_cache_path.stat().st_mtime >= seeker_json_path.stat().st_mtime
+                    ):
+                        cache = json.loads(token_cache_path.read_text(encoding="utf-8"))
+                        seeker_total_tokens = cache.get("total", 0)
+                        seeker_reasoning_tokens = cache.get("reasoning")  # None se não houver
+                        seeker_final_tokens = cache.get("final", 0)
+                    else:
+                        with seeker_json_path.open("r", encoding="utf-8") as f:
+                            seeker_data = json.load(f)
+
+                        reasoning_history = seeker_data.get("reasoning_history", [])
+                        history = seeker_data.get("history", [])
+                        model = seeker_data.get("config", {}).get("model")
+
+                        total, reasoning, final = count_seeker_tokens(
+                            reasoning_history, history, model
+                        )
+                        seeker_total_tokens = total
+                        seeker_reasoning_tokens = reasoning
+                        seeker_final_tokens = final
+
+                        # Salvar cache
+                        token_cache_path.write_text(
+                            json.dumps({"total": total, "reasoning": reasoning, "final": final}),
+                            encoding="utf-8",
+                        )
+                except Exception:
                     pass
         
         game_run = GameRun(
