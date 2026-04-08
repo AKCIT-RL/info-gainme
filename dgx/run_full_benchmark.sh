@@ -15,19 +15,23 @@ CONFIGS_TARGET="configs/full/8b/"
 
 export MODE="single"
 
+# Dynamic ports based on SLURM_JOB_ID to avoid conflicts
+# Formula: 8000 + (JOB_ID % 1000) for base, then +0 and +1 for MODEL1 and MODEL2
+BASE_PORT=$((8000 + (SLURM_JOB_ID % 1000)))
+export MODEL1_PORT=$((BASE_PORT))
+export MODEL2_PORT=$((BASE_PORT + 1))
+
+export MODEL1="Qwen/Qwen3-4B-Thinking-2507"
+export MODEL1_NAME="Qwen3-4B-Thinking-2507"
+export MODEL1_GPU_MEM=0.90
+export MODEL1_MAX_LEN=32000
+export MODEL1_REASONING_PARSER=""
+
 export MODEL2="Qwen/Qwen3-8B"
 export MODEL2_NAME="Qwen3-8B"
-export MODEL2_PORT=8028
 export MODEL2_GPU_MEM=0.90
 export MODEL2_MAX_LEN=32000
 export MODEL2_REASONING_PARSER=""
-
-# export MODEL2="Qwen/Qwen3-8B"
-# export MODEL2_NAME="Qwen3-8B"
-# export MODEL2_PORT=8028
-# export MODEL2_GPU_MEM=0.90
-# export MODEL2_MAX_LEN=32000
-# export MODEL2_REASONING_PARSER=""
 
 # MODE can be set manually via environment or auto-detected from GPUs
 # export MODE=single   # or MODE=dual (before running sbatch)
