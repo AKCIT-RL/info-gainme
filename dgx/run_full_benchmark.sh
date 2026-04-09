@@ -107,13 +107,12 @@ echo ""
 
 start_vllm_server() {
     local model=$1 name=$2 port=$3 gpu=$4 gpu_mem=$5 max_len=$6 log=$7 parser=${8:-""}
-    echo "Starting ${name} (GPU ${gpu}:${port})..."
-    export CUDA_VISIBLE_DEVICES=${gpu}
+    echo "Starting ${name} (GPU ${gpu}:${port})..." >&2
 
     local cmd="/usr/bin/python3 -m vllm.entrypoints.openai.api_server --model ${model} --served-model-name ${name} --download-dir /workspace/hf-cache/hub --port ${port} --host 0.0.0.0 --gpu-memory-utilization ${gpu_mem} --max-num-seqs 16 --max-model-len ${max_len} --enforce-eager"
     [ -n "${parser}" ] && cmd="${cmd} --reasoning-parser ${parser}"
 
-    singularity exec --nv --bind /raid/user_danielpedrozo:/workspace --bind "/usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/local/cuda/compat/lib/libcuda.so.1" --bind /dev/shm:/dev/shm --pwd /workspace --env HF_TOKEN=${HF_TOKEN} --env VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL} --env HF_HOME=${HF_HOME} --env CUDA_VISIBLE_DEVICES=${gpu} "${SINGULARITY_IMAGE}" sh -c "mkdir -p $(dirname ${log}) && ${cmd} > ${log} 2>&1" &
+    nohup singularity exec --nv --bind /raid/user_danielpedrozo:/workspace --bind "/usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/local/cuda/compat/lib/libcuda.so.1" --bind /dev/shm:/dev/shm --pwd /workspace --env HF_TOKEN=${HF_TOKEN} --env VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL} --env HF_HOME=${HF_HOME} --env CUDA_VISIBLE_DEVICES=${gpu} "${SINGULARITY_IMAGE}" sh -c "mkdir -p $(dirname ${log}) && ${cmd} > ${log} 2>&1" >/dev/null 2>&1 &
     echo "$!"
 }
 

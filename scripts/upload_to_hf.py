@@ -27,11 +27,22 @@ except ImportError:
     pass
 
 
+IGNORE_DIRS = {".cache"}
+
+
 def count_files(directory: Path) -> tuple[int, float]:
-    """Return (file_count, total_size_gb)."""
-    files = [f for f in directory.rglob("*") if f.is_file()]
-    size_gb = sum(f.stat().st_size for f in files) / 1e9
-    return len(files), size_gb
+    """Return (file_count, total_size_gb), skipping .cache/ and transient lock files."""
+    files = [
+        f for f in directory.rglob("*")
+        if f.is_file() and not any(p.name in IGNORE_DIRS for p in f.parents)
+    ]
+    total = 0
+    for f in files:
+        try:
+            total += f.stat().st_size
+        except FileNotFoundError:
+            pass
+    return len(files), total / 1e9
 
 
 def main() -> int:
@@ -137,6 +148,7 @@ def main() -> int:
             repo_id=repo_id,
             repo_type="dataset",
             num_workers=args.num_workers,
+            ignore_patterns=[".cache/**"],
         )
     except Exception as exc:
         print(f"\nUpload failed: {exc}")
