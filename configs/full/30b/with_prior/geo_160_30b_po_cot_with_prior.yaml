@@ -1,0 +1,50 @@
+# Benchmark Configuration - Geo Full (160 cities, 30B, PO + COT) — WITH POPULATION PRIOR
+# Compare against: configs/full/30b/cot/geo_160_30b_po_cot.yaml
+# Run: python benchmark_runner.py --config configs/full/30b/with_prior/geo_160_30b_po_cot_with_prior.yaml
+
+models:
+  seeker:
+    model: "Qwen3-30B-A3B-Thinking-2507"
+    timeout: 180.0
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true
+    use_reasoning: true
+
+  oracle:
+    model: "Qwen3-8B"
+    timeout: 120.0
+
+  pruner:
+    model: "Qwen3-8B"
+    timeout: 120.0
+
+game:
+  observability_mode: "PARTIALLY_OBSERVABLE"
+  max_turns: 30
+
+dataset:
+  type: "geo"
+  csv_path: "data/geo/top_160_pop_cities.csv"
+  num_targets: null
+  runs_per_target: 3
+  pool_description: >
+    The candidate pool consists of the 160 most populous cities in the world,
+    selected strictly by population rank. Larger, more internationally
+    recognized cities dominate the pool — Asian and South Asian megacities
+    are heavily represented. Use this when reasoning about which geographic
+    splits will be most informative.
+
+experiment:
+  name: "geo_160_30b_po_cot_with_prior"
+  max_workers: 16
+  tags:
+    prior: "population_rank"
+
+output:
+  base_dir: "outputs"
+  save_conversations: true
+  save_graph_plots: false
+
+debug:
+  enabled: true
