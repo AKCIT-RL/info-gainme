@@ -18,7 +18,7 @@ servers:
   Qwen/Qwen3-235B-A22B-Instruct-2507-FP8: "http://10.100.0.111:8026/v1"
   meta-llama/Llama-3.3-70B-Instruct: "http://10.100.0.111:8030/v1"
 
-  Qwen3-8B: "http://10.100.0.113:8028/v1"
+  Qwen3-8B: "http://10.100.0.112:8241/v1/"
   Qwen3-30B-A3B-Thinking-2507: "http://10.100.0.121:8029/v1"
   # Qwen3-30B-A3B-Instruct-2507: "http://10.100.0.113:8022/v1"
   Qwen3-4B-Thinking-2507: "http://10.100.0.112:8021/v1"

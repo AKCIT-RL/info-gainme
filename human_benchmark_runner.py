@@ -46,6 +46,9 @@ def _handle_sigint(sig, frame):
 
 
 def main() -> None:
+    # Shared with _handle_sigint: user asked to stop after current game (Ctrl+C).
+    global _STOP_REQUESTED
+
     parser = argparse.ArgumentParser(description="Human-seeker benchmark runner")
     parser.add_argument(
         "--config", type=Path, default="configs/human/geo_160_human_fo.yaml",
@@ -102,12 +105,13 @@ def main() -> None:
     else:
         pool, _ = load_geo_candidates(csv_path=csv_path)
 
-    all_targets = sorted(pool.candidates, key=lambda c: c.id)
+    # Random order of secret targets (full dataset or first k). Reproducible with --seed.
+    all_candidates = list(pool.candidates)
+    n_candidates = len(all_candidates)
+    requested = args.num_games if args.num_games > 0 else n_candidates
+    k = min(requested, n_candidates)
     rng = random.Random(args.seed)
-    rng.shuffle(all_targets)
-
-    num_games = args.num_games if args.num_games > 0 else len(all_targets)
-    targets = all_targets[:num_games]
+    targets = rng.sample(all_candidates, k=k)
 
     signal.signal(signal.SIGINT, _handle_sigint)
 
@@ -115,10 +119,11 @@ def main() -> None:
     print("\n" + "═" * 60)
     print("  INFO-GAINME  —  Human Baseline")
     print("═" * 60)
-    print(f"  Domain      : {dataset_type}  ({len(all_targets)} candidates)")
+    print(f"  Domain      : {dataset_type}  ({n_candidates} candidates)")
     print(f"  Observability: {mode_name}")
     print(f"  Oracle/Pruner: {benchmark_config.oracle_config.model}")
-    print(f"  Games planned: {num_games}")
+    _seed_hint = f", seed={args.seed}" if args.seed is not None else ", seed=none"
+    print(f"  Games planned: {k}  (target order: random{_seed_hint})")
     print(f"  Max turns/game: {benchmark_config.max_turns}")
     print("═" * 60)
     print("  Ask yes/no questions to identify the hidden target.")
@@ -131,7 +136,7 @@ def main() -> None:
         if _STOP_REQUESTED:
             break
 
-        print(f"\n{'▶' * 3}  GAME {game_idx}/{num_games}  {'◀' * 3}")
+        print(f"\n{'▶' * 3}  GAME {game_idx}/{len(targets)}  {'◀' * 3}")
         print(f"  (Target is secret — find the {dataset_type} item!)\n")
 
         try:
