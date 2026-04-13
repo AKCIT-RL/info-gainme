@@ -5,6 +5,9 @@ models:
   seeker:
     model: "Qwen3-0.6B"
     timeout: 120.0
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: false
 
   oracle:
     model: "Qwen3-8B"
@@ -26,7 +29,7 @@ dataset:
 
 experiment:
   name: "diseases_160_0.6b_po_no_cot"
-  max_workers: 16
+  max_workers: 32
   tags: {}
 
 output:
