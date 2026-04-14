@@ -55,8 +55,8 @@ def main() -> None:
         help="Path to human benchmark YAML config",
     )
     parser.add_argument(
-        "--num-games", type=int, default=1,
-        help="Number of games to play (default: 1). Use 0 to play all targets.",
+        "--num-games", type=int, default=0,
+        help="Number of games to play (default: 0 = all targets in dataset).",
     )
     parser.add_argument(
         "--seed", type=int, default=42,
