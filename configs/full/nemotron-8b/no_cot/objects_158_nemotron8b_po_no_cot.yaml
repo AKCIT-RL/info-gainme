@@ -4,7 +4,7 @@
 
 models:
   seeker:
-    model: "Nemotron-Cascade-8B"
+    model: "Nemotron-Cascade-8B" #HF_PATH=nvidia/Nemotron-Cascade-8B
     timeout: 120.0
     extra_body:
       chat_template_kwargs:

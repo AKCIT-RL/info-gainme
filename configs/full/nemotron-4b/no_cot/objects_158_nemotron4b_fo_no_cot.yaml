@@ -4,7 +4,7 @@
 
 models:
   seeker:
-    model: "Nemotron-Mini-4B-Instruct"
+    model: "Nemotron-Mini-4B-Instruct" #HF_PATH=nvidia/Nemotron-Mini-4B-Instruct
     timeout: 120.0
 
   oracle:

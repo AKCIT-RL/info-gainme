@@ -4,7 +4,7 @@
 
 models:
   seeker:
-    model: "Gemma-3-12B-IT"
+    model: "Gemma-3-12B-IT" #HF_PATH=google/gemma-3-12b-it
     timeout: 180.0
 
   oracle:

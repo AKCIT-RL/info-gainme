@@ -3,7 +3,7 @@
 
 models:
   seeker:
-    model: "meta-llama/Llama-3.3-70B-Instruct"
+    model: "Llama-3.3-70B-Instruct" #HF_PATH=meta-llama/Llama-3.3-70B-Instruct
     timeout: 180.0
 
   oracle:

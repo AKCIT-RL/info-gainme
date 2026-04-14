@@ -1,9 +1,9 @@
-# Benchmark - Objects (158, meta-llama/Llama-3.2-11B-Vision-Instruct, FULLY_OBSERVABLE, no CoT)
+# Benchmark - Objects (158, Llama-3.2-11B-Vision-Instruct, FULLY_OBSERVABLE, no CoT)
 # Run: python benchmark_runner.py --config configs/full/llama-11b/no_cot/objects_158_llama11b_fo_no_cot.yaml
 
 models:
   seeker:
-    model: "meta-llama/Llama-3.2-11B-Vision-Instruct"
+    model: "Llama-3.2-11B-Vision-Instruct" #HF_PATH=meta-llama/Llama-3.2-11B-Vision-Instruct
     timeout: 120.0
 
   oracle:

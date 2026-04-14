@@ -4,7 +4,7 @@
 
 models:
   seeker:
-    model: "Nemotron-Cascade-8B-Thinking"
+    model: "Nemotron-Cascade-8B-Thinking" #HF_PATH=nvidia/Nemotron-Cascade-8B-Thinking
     timeout: 300.0
     use_reasoning: true
 
