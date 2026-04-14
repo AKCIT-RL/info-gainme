@@ -10,7 +10,47 @@ A métrica principal é o ganho de informação por turno: `IG = H_antes - H_dep
 
 ---
 
+## Baseline humano (você como Seeker)
+
+Jogue como Seeker via CLI — Oracle e Pruner continuam sendo LLMs (Qwen3-8B).
+
+```bash
+# Escolhe alvos aleatoriamente (padrão: 1 jogo)
+python3 human_benchmark_runner.py --config configs/human/geo_160_human_fo.yaml
+
+# 5 jogos com seed fixo
+python3 human_benchmark_runner.py --config configs/human/geo_160_human_fo.yaml --num-games 5 --seed 42
+
+# Todos os alvos do dataset
+python3 human_benchmark_runner.py --config configs/human/geo_160_human_fo.yaml --num-games 0
+```
+
+Configs disponíveis em `configs/human/`: `geo`, `objects` e `diseases` × `fo`/`po`. Os resultados são salvos em `outputs/` no mesmo formato dos benchmarks automatizados. Ctrl+C termina após o jogo atual.
+
+---
+
 ## Executando benchmarks
+
+### Via SLURM com vLLM (recomendado na DGX)
+
+Sobe os servidores vLLM e roda os benchmarks em um único job SLURM:
+
+```bash
+# Seeker externo (endpoint já em configs/servers.yaml) — sobe só oracle/pruner
+sbatch dgx/run_external_seeker_benchmark.sh configs/full/235b/no_cot/
+sbatch dgx/run_external_seeker_benchmark.sh configs/full/llama-70b/no_cot/
+
+# Seeker local — sobe todos os modelos necessários
+sbatch dgx/run_full_benchmark.sh configs/full/4b/          # pasta inteira
+sbatch dgx/run_full_benchmark.sh configs/full/4b/cot/geo_160_4b_thinking_fo_cot.yaml  # config individual
+```
+
+Monitore com `watch squeue -u $USER` e `tail -f logs/info-gainme-full-<JOBID>.out`.
+
+Para adicionar um novo modelo:
+1. Adicione o endpoint em `configs/servers.yaml`
+2. Crie os configs em `configs/full/<modelo>/no_cot/` (e `cot/` se o modelo suportar thinking)
+3. Submeta com `sbatch dgx/run_external_seeker_benchmark.sh configs/full/<modelo>/no_cot/`
 
 ### Via screen (preferido na DGX)
 
