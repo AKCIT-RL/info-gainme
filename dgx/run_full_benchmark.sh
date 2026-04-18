@@ -115,18 +115,41 @@ start_vllm_server() {
     nohup singularity exec --nv --bind /raid/user_danielpedrozo:/workspace --bind "/usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/local/cuda/compat/lib/libcuda.so.1" --bind /dev/shm:/dev/shm --pwd /workspace --env HF_TOKEN=${HF_TOKEN} --env VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL} --env HF_HOME=${HF_HOME} --env CUDA_VISIBLE_DEVICES=${gpu} "${SINGULARITY_IMAGE}" sh -c "mkdir -p $(dirname ${log}) && ${cmd} > ${log} 2>&1" >/dev/null 2>&1 &
     echo "$!"
 }
+clear
+# Wait for a vLLM server to become ready, with timeout and liveness check.
+# Aborts the job (exit 1) if the readiness check times out or the vLLM process dies.
+# Usage: wait_vllm_ready <pid> <port> <name> [timeout_seconds]
+wait_vllm_ready() {
+    local pid=$1 port=$2 name=$3 timeout=${4:-1800}
+    local elapsed=0
+    echo "Waiting up to ${timeout}s for ${name} on port ${port} (pid=${pid})..."
+    while ! curl -s http://localhost:${port}/v1/models > /dev/null 2>&1; do
+        if ! kill -0 ${pid} 2>/dev/null; then
+            echo "ERROR: vLLM process ${pid} for ${name} died before readiness"
+            tail -n 50 "${LOGS_DIR}/info-gainme-full-${SLURM_JOB_ID}-vllm-${name}.log" 2>/dev/null || true
+            exit 1
+        fi
+        if [ ${elapsed} -ge ${timeout} ]; then
+            echo "ERROR: ${name} not ready after ${timeout}s — aborting"
+            tail -n 50 "${LOGS_DIR}/info-gainme-full-${SLURM_JOB_ID}-vllm-${name}.log" 2>/dev/null || true
+            kill ${pid} 2>/dev/null || true
+            exit 1
+        fi
+        sleep 5
+        elapsed=$((elapsed + 5))
+    done
+    echo "✓ ${name} ready after ${elapsed}s"
+}
 
 PID1=$(start_vllm_server "${MODEL1}" "${MODEL1_NAME}" ${MODEL1_PORT} ${MODEL1_GPU} ${MODEL1_GPU_MEM} ${MODEL1_MAX_LEN} "${LOGS_DIR}/info-gainme-full-${SLURM_JOB_ID}-vllm-${MODEL1_NAME}.log" "${MODEL1_REASONING_PARSER}")
-while ! curl -s http://localhost:${MODEL1_PORT}/v1/models > /dev/null 2>&1; do sleep 5; done
-echo "✓ ${MODEL1_NAME} ready"
+wait_vllm_ready ${PID1} ${MODEL1_PORT} "${MODEL1_NAME}" "${VLLM_READY_TIMEOUT:-1800}"
 echo ""
 
 # Start second model only in dual mode
 PID2=""
 if [ "${MODE}" = "dual" ]; then
     PID2=$(start_vllm_server "${MODEL2}" "${MODEL2_NAME}" ${MODEL2_PORT} ${MODEL2_GPU} ${MODEL2_GPU_MEM} ${MODEL2_MAX_LEN} "${LOGS_DIR}/info-gainme-full-${SLURM_JOB_ID}-vllm-${MODEL2_NAME}.log" "${MODEL2_REASONING_PARSER}")
-    while ! curl -s http://localhost:${MODEL2_PORT}/v1/models > /dev/null 2>&1; do sleep 5; done
-    echo "✓ ${MODEL2_NAME} ready"
+    wait_vllm_ready ${PID2} ${MODEL2_PORT} "${MODEL2_NAME}" "${VLLM_READY_TIMEOUT:-1800}"
     echo ""
 else
     # Single mode: use MODEL1 for all agents

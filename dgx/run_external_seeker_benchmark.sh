@@ -102,13 +102,29 @@ nohup singularity exec --nv \
 PID1=$!
 
 echo "  PID: ${PID1} | Log: ${VLLM_LOG}"
-echo -n "  Aguardando ${MODEL1_NAME} ficar pronto..."
+VLLM_READY_TIMEOUT="${VLLM_READY_TIMEOUT:-1800}"
+echo -n "  Aguardando ${MODEL1_NAME} ficar pronto (timeout ${VLLM_READY_TIMEOUT}s)..."
+elapsed=0
 while ! curl -s http://localhost:${MODEL1_PORT}/v1/models > /dev/null 2>&1; do
+    if ! kill -0 ${PID1} 2>/dev/null; then
+        echo ""
+        echo "ERROR: processo vLLM ${PID1} morreu antes de ficar pronto"
+        tail -n 50 "${VLLM_LOG}" 2>/dev/null || true
+        exit 1
+    fi
+    if [ ${elapsed} -ge ${VLLM_READY_TIMEOUT} ]; then
+        echo ""
+        echo "ERROR: ${MODEL1_NAME} não ficou pronto em ${VLLM_READY_TIMEOUT}s — abortando"
+        tail -n 50 "${VLLM_LOG}" 2>/dev/null || true
+        kill ${PID1} 2>/dev/null || true
+        exit 1
+    fi
     sleep 5
+    elapsed=$((elapsed + 5))
     echo -n "."
 done
 echo ""
-echo "  ✓ ${MODEL1_NAME} pronto"
+echo "  ✓ ${MODEL1_NAME} pronto em ${elapsed}s"
 echo ""
 
 # ============================================

@@ -78,6 +78,13 @@ This script:
 
 Models are configurable at the top of `dgx/run_full_benchmark.sh`. Defaults: `Qwen3-4B-Thinking-2507` (seeker) + `Qwen3-8B` (oracle/pruner). Override via `sbatch --export=ALL,MODEL1=...,MODEL2=...,CONFIGS_TARGET=configs/full/4b/ dgx/run_full_benchmark.sh`. Key overridable vars: `MODEL1`, `MODEL1_NAME`, `MODEL2`, `MODEL2_NAME`, `MODE` (`single`/`dual`), `CONFIGS_TARGET`, `MODEL1_PORT`, `MODEL2_PORT` (ports default to `8000 + (JOB_ID % 1000)` and `+1`).
 
+**External seeker** (seeker endpoint already in `configs/servers.yaml`): brings up only oracle/pruner locally.
+```bash
+sbatch dgx/run_external_seeker_benchmark.sh configs/full/235b/no_cot/
+sbatch dgx/run_external_seeker_benchmark.sh configs/full/llama-70b/no_cot/
+```
+To add a new external-seeker model: (1) add endpoint to `configs/servers.yaml`; (2) create configs in `configs/full/<model>/no_cot/` (and `cot/` if the model supports thinking); (3) submit as above.
+
 Monitor with: `watch squeue -u $USER` and `tail -f logs/info-gainme-full-<JOBID>.out`
 
 **Manual vLLM + screen (alternative):**
@@ -120,6 +127,8 @@ MODEL=Qwen3-8B BASE_URL=http://localhost:8020/v1 bash dgx/run_synthesize_traces.
 For each CoT game, extracts `<think>` blocks from `seeker.json` and synthesizes structured reasoning (options considered, choice rationale) via LLM. Idempotent — skips if `seeker_traces.json` exists. Output: `seeker_traces.json` per conversation.
 
 Parallelism is two-level: `WORKERS` (default 8) = conversations in parallel per experiment; `TURN_WORKERS` (default 4) = LLM calls parallelized within a conversation. Max concurrent LLM calls ≈ `workers × turn_workers`. Override via `--turn-workers` flag or `TURN_WORKERS` env var.
+
+`dgx/run_all_synthesize_traces.sh` is a shortcut that synthesizes all traces at once without `sg sd22` (personal environment only).
 
 **Step 3: Analyze reasoning traces**
 ```bash
