@@ -99,10 +99,14 @@ fi
 
 
 export VLLM_LOGGING_LEVEL=DEBUG
+export VLLM_ENGINE_READY_TIMEOUT_S="${VLLM_ENGINE_READY_TIMEOUT_S:-1800}"
 export HF_HOME=/workspace/hf-cache
 source /raid/user_danielpedrozo/projects/info-gainme_dev/.env
 export HF_TOKEN="${HF_TOKEN:?HF_TOKEN não definido no .env}"
+# LOGS_DIR is the container path (used only by code that runs inside singularity);
+# LOGS_DIR_HOST is the equivalent host path used for redirects and tail.
 export LOGS_DIR="/workspace/projects/info-gainme_dev/logs"
+export LOGS_DIR_HOST="${PROJECT_DIR}/logs"
 
 mkdir -p "${PROJECT_DIR}/logs" "${PROJECT_DIR}/hf-cache" "${PROJECT_DIR}/outputs"
 cd "${PROJECT_DIR}"
@@ -123,7 +127,22 @@ start_vllm_server() {
     local cmd="/usr/bin/python3 -m vllm.entrypoints.openai.api_server --model ${model} --served-model-name ${name} --download-dir /workspace/hf-cache/hub --port ${port} --host 0.0.0.0 --gpu-memory-utilization ${gpu_mem} --max-num-seqs 16 --max-model-len ${max_len} --enforce-eager"
     [ -n "${parser}" ] && cmd="${cmd} --reasoning-parser ${parser}"
 
-    nohup singularity exec --nv --bind /raid/user_danielpedrozo:/workspace --bind "/usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/local/cuda/compat/lib/libcuda.so.1" --bind /dev/shm:/dev/shm --pwd /workspace --env HF_TOKEN=${HF_TOKEN} --env VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL} --env HF_HOME=${HF_HOME} --env CUDA_VISIBLE_DEVICES=${gpu} "${SINGULARITY_IMAGE}" sh -c "mkdir -p $(dirname ${log}) && ${cmd} > ${log} 2>&1" >/dev/null 2>&1 &
+    # Redireciona stdout/stderr do singularity exec (host) para o MESMO arquivo
+    # de log do vLLM, assim erros de startup do container não são perdidos.
+    # Também evita nohup para reduzir interferência com cgroup do SLURM.
+    mkdir -p "$(dirname ${log})" 2>/dev/null || true
+    singularity exec --nv \
+      --bind /raid/user_danielpedrozo:/workspace \
+      --bind "/usr/lib/x86_64-linux-gnu/libcuda.so.1:/usr/local/cuda/compat/lib/libcuda.so.1" \
+      --bind /dev/shm:/dev/shm \
+      --pwd /workspace \
+      --env HF_TOKEN=${HF_TOKEN} \
+      --env VLLM_LOGGING_LEVEL=${VLLM_LOGGING_LEVEL} \
+      --env VLLM_ENGINE_READY_TIMEOUT_S=${VLLM_ENGINE_READY_TIMEOUT_S} \
+      --env HF_HOME=${HF_HOME} \
+      --env CUDA_VISIBLE_DEVICES=${gpu} \
+      "${SINGULARITY_IMAGE}" \
+      bash -c "${cmd}" >> "${log}" 2>&1 &
     echo "$!"
 }
 clear
@@ -137,12 +156,12 @@ wait_vllm_ready() {
     while ! curl -s http://localhost:${port}/v1/models > /dev/null 2>&1; do
         if ! kill -0 ${pid} 2>/dev/null; then
             echo "ERROR: vLLM process ${pid} for ${name} died before readiness"
-            tail -n 50 "${LOGS_DIR}/info-gainme-full-${SLURM_JOB_ID}-vllm-${name}.log" 2>/dev/null || true
+            tail -n 50 "${LOGS_DIR_HOST}/info-gainme-full-${SLURM_JOB_ID}-vllm-${name}.log" 2>/dev/null || true
             exit 1
         fi
         if [ ${elapsed} -ge ${timeout} ]; then
             echo "ERROR: ${name} not ready after ${timeout}s — aborting"
-            tail -n 50 "${LOGS_DIR}/info-gainme-full-${SLURM_JOB_ID}-vllm-${name}.log" 2>/dev/null || true
+            tail -n 50 "${LOGS_DIR_HOST}/info-gainme-full-${SLURM_JOB_ID}-vllm-${name}.log" 2>/dev/null || true
             kill ${pid} 2>/dev/null || true
             exit 1
         fi
@@ -152,14 +171,14 @@ wait_vllm_ready() {
     echo "✓ ${name} ready after ${elapsed}s"
 }
 
-PID1=$(start_vllm_server "${MODEL1}" "${MODEL1_NAME}" ${MODEL1_PORT} ${MODEL1_GPU} ${MODEL1_GPU_MEM} ${MODEL1_MAX_LEN} "${LOGS_DIR}/info-gainme-full-${SLURM_JOB_ID}-vllm-${MODEL1_NAME}.log" "${MODEL1_REASONING_PARSER}")
+PID1=$(start_vllm_server "${MODEL1}" "${MODEL1_NAME}" ${MODEL1_PORT} ${MODEL1_GPU} ${MODEL1_GPU_MEM} ${MODEL1_MAX_LEN} "${LOGS_DIR_HOST}/info-gainme-full-${SLURM_JOB_ID}-vllm-${MODEL1_NAME}.log" "${MODEL1_REASONING_PARSER}")
 wait_vllm_ready ${PID1} ${MODEL1_PORT} "${MODEL1_NAME}" "${VLLM_READY_TIMEOUT:-1800}"
 echo ""
 
 # Start second model only in dual mode
 PID2=""
 if [ "${MODE}" = "dual" ]; then
-    PID2=$(start_vllm_server "${MODEL2}" "${MODEL2_NAME}" ${MODEL2_PORT} ${MODEL2_GPU} ${MODEL2_GPU_MEM} ${MODEL2_MAX_LEN} "${LOGS_DIR}/info-gainme-full-${SLURM_JOB_ID}-vllm-${MODEL2_NAME}.log" "${MODEL2_REASONING_PARSER}")
+    PID2=$(start_vllm_server "${MODEL2}" "${MODEL2_NAME}" ${MODEL2_PORT} ${MODEL2_GPU} ${MODEL2_GPU_MEM} ${MODEL2_MAX_LEN} "${LOGS_DIR_HOST}/info-gainme-full-${SLURM_JOB_ID}-vllm-${MODEL2_NAME}.log" "${MODEL2_REASONING_PARSER}")
     wait_vllm_ready ${PID2} ${MODEL2_PORT} "${MODEL2_NAME}" "${VLLM_READY_TIMEOUT:-1800}"
     echo ""
 else
