@@ -15,6 +15,7 @@ Requirements:
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -90,17 +91,25 @@ def main() -> int:
 
     print(f"Downloading {repo_id} → {outputs_dir} ...")
     print("Download is resumable — safe to interrupt and re-run.\n")
-    try:
-        snapshot_download(
-            repo_id=repo_id,
-            repo_type="dataset",
-            local_dir=str(outputs_dir),
-            token=token,
-            max_workers=args.num_workers,
-        )
-    except Exception as exc:
-        print(f"\nDownload failed: {exc}")
-        return 1
+
+    max_attempts = 8
+    for attempt in range(1, max_attempts + 1):
+        try:
+            snapshot_download(
+                repo_id=repo_id,
+                repo_type="dataset",
+                local_dir=str(outputs_dir),
+                token=token,
+                max_workers=args.num_workers,
+            )
+            break
+        except Exception as exc:
+            if attempt == max_attempts:
+                print(f"\nDownload failed after {attempt} attempts: {exc}")
+                return 1
+            delay = min(300, 2 ** attempt + (30 if "429" in str(exc) else 0))
+            print(f"\nAttempt {attempt} failed ({exc}). Retrying in {delay}s...")
+            time.sleep(delay)
 
     print(f"\nDone! Local copy at: {outputs_dir}")
     return 0
