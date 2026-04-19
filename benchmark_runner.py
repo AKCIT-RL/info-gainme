@@ -26,6 +26,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Run benchmark experiments")
     parser.add_argument("--config", type=Path, default="configs/geo_full_no_cot.yaml")
     parser.add_argument("--servers-override", type=Path, default=None, help="Path to servers override YAML file")
+    parser.add_argument("--runs-per-target", type=int, default=None,
+                        help="Override runs_per_target from config (e.g. 1 for a quick first pass)")
     args = parser.parse_args()
 
     load_dotenv()
@@ -47,7 +49,7 @@ def main() -> None:
     dataset_cfg = config.get("dataset", {})
     dataset_type = dataset_cfg.get("type", "geo")
     num_targets = dataset_cfg.get("num_targets")
-    runs_per_target = dataset_cfg.get("runs_per_target", 1)
+    runs_per_target = args.runs_per_target if args.runs_per_target is not None else dataset_cfg.get("runs_per_target", 1)
     output_base = Path(config["output"]["base_dir"])
 
     log_file = output_base / "logs" / f"{benchmark_config.experiment_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"

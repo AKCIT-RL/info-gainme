@@ -150,7 +150,7 @@ class BenchmarkRunner:
             safe_id = _safe_name(target.id)
             conv_dir = (
                 self._output_dir() / "conversations" /
-                (f"{safe_id}_run{run_idx:02d}" if runs_per_target > 1 else safe_id)
+                f"{safe_id}_run{run_idx:02d}"
             )
 
             orch = Orchestrator.from_target(

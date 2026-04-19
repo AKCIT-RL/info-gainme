@@ -173,7 +173,8 @@ for CONFIG in "${CONFIGS[@]}"; do
             '${SINGULARITY_IMAGE}' \
             bash -c \"
                 pip install --user -r requirements.txt 2>/dev/null
-                python3 benchmark_runner.py --config '${REL}' --servers-override '${SERVERS_OVERRIDE}'
+                RUNS_ARG=\"\"; [ -n \"${RUNS_PER_TARGET}\" ] && RUNS_ARG=\"--runs-per-target ${RUNS_PER_TARGET}\"
+                python3 benchmark_runner.py --config '${REL}' --servers-override '${SERVERS_OVERRIDE}' \${RUNS_ARG}
             \"
     " && echo "  ✓" || echo "  ✗"
     echo ""

@@ -201,7 +201,9 @@ echo ""
 for CONFIG in "${CONFIGS[@]}"; do
     REL="${CONFIG#${PROJECT_DIR}/}"
     echo "[$(date '+%H:%M:%S')] ${REL}"
-    sg "${SHARED_GROUP}" -c "singularity exec --bind /raid/user_danielpedrozo:/workspace --pwd /workspace/projects/info-gainme_dev '${SINGULARITY_IMAGE}' bash -c \"pip install --user -r requirements.txt 2>/dev/null; python3 benchmark_runner.py --config '${REL}' --servers-override '${SERVERS_OVERRIDE}'\"" && echo "  ✓" || echo "  ✗"
+    RUNS_ARG=""
+    [ -n "${RUNS_PER_TARGET}" ] && RUNS_ARG="--runs-per-target ${RUNS_PER_TARGET}"
+    sg "${SHARED_GROUP}" -c "singularity exec --bind /raid/user_danielpedrozo:/workspace --pwd /workspace/projects/info-gainme_dev '${SINGULARITY_IMAGE}' bash -c \"pip install --user -r requirements.txt 2>/dev/null; python3 benchmark_runner.py --config '${REL}' --servers-override '${SERVERS_OVERRIDE}' ${RUNS_ARG}\"" && echo "  ✓" || echo "  ✗"
     echo ""
 done
 
