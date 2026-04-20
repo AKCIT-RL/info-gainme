@@ -112,11 +112,14 @@ class QuestionClassification(BaseModel):
             "Empty list when no sharper label applies."
         ),
     )
-    redundancy: RedundancyType
-    redundant_with_turn: int | None = Field(
-        default=None,
-        description="1-indexed earlier turn this one is redundant with; null otherwise.",
+    redundancy_rationale: str = Field(
+        default="",
+        description=(
+            "One short sentence explaining why this redundancy label fits. "
+            "When redundancy is not 'none', mention which earlier turn makes this one redundant."
+        ),
     )
+    redundancy: RedundancyType
 
 
 class BatchClassification(BaseModel):
@@ -249,12 +252,13 @@ For each turn, produce SEVEN fields IN THIS EXACT ORDER:
    - `compound_predicate`       conjoined conditions ("in Asia AND coastal?")
    - `meta_strategy`            about the game state, not the target
    - `statement`, `open_ended`  sub-types of `malformed`
-6. **redundancy** — one of:
+6. **redundancy_rationale** — one short sentence explaining why this redundancy label fits. When redundancy is not `none`, mention which earlier turn (by number) makes this one redundant.
+7. **redundancy** — one of:
    - `none`                brings new information.
    - `exact_duplicate`     literally the same wording as an earlier turn.
    - `semantic_equivalent` same question in different words (answer is determined).
    - `strictly_implied`    answer is already determined by prior Q&A.
-7. **redundant_with_turn** — 1-indexed earliest prior turn that makes this one redundant; `null` when redundancy is `none`. Redundancy for turn K is measured ONLY against turns 1..K-1 — never use information from later turns.
+   Redundancy for turn K is measured ONLY against turns 1..K-1 — never use information from later turns.
 
 Return a JSON object with a single key `classifications` containing an array with EXACTLY ONE entry per turn, in the same order as the turns shown. No prose, no markdown fences.
 
@@ -274,8 +278,8 @@ Expected output:
           "question_type": "semantic",
           "subclasses_rationale": "Asks about a broad organ-system category, a high-level taxonomic bucket.",
           "subclasses": ["hierarchical_category"],
-          "redundancy": "none",
-          "redundant_with_turn": null
+          "redundancy_rationale": "This is the first turn, so no prior Q&A exists to make it redundant.",
+          "redundancy": "none"
         },
         {
           "question": "Is it bigger than the common cold in mortality?",
@@ -283,8 +287,8 @@ Expected output:
           "question_type": "semantic",
           "subclasses_rationale": "Frames the attribute as a comparison with another entity, and the attribute itself is a numeric-like magnitude.",
           "subclasses": ["comparative", "quantitative_threshold"],
-          "redundancy": "none",
-          "redundant_with_turn": null
+          "redundancy_rationale": "Asks about mortality magnitude, which was not covered by turn 1.",
+          "redundancy": "none"
         },
         {
           "question": "Is it the common cold?",
@@ -292,8 +296,8 @@ Expected output:
           "question_type": "direct_guess",
           "subclasses_rationale": "",
           "subclasses": [],
-          "redundancy": "strictly_implied",
-          "redundant_with_turn": 2
+          "redundancy_rationale": "Turn 3 asks about the common cold, but turn 2 already established the target has higher mortality than the common cold, so this guess is already ruled out.",
+          "redundancy": "strictly_implied"
         }
       ]
     }

@@ -17,7 +17,7 @@ Columns:
     target, run_index,
     turn, question, question_echoed, oracle_answer,
     question_type_rationale, question_type, subclasses_rationale, subclasses,
-    redundancy, redundant_with_turn,
+    redundancy_rationale, redundancy,
     error (empty on success)
 
 ``subclasses`` is a ";"-joined string (e.g. "comparative;quantitative_threshold")
@@ -77,8 +77,8 @@ COLUMNS = [
     "question_type",
     "subclasses_rationale",
     "subclasses",
+    "redundancy_rationale",
     "redundancy",
-    "redundant_with_turn",
     "error",
 ]
 
@@ -117,8 +117,8 @@ def iter_rows(conv: dict[str, Any]) -> list[dict[str, Any]]:
                 "question_type": "" if is_error else cls.get("question_type", ""),
                 "subclasses_rationale": subclasses_rationale,
                 "subclasses": ";".join(subclasses),
+                "redundancy_rationale": "" if is_error else cls.get("redundancy_rationale", ""),
                 "redundancy": "" if is_error else cls.get("redundancy", ""),
-                "redundant_with_turn": "" if is_error else cls.get("redundant_with_turn", ""),
                 "error": cls.get("error", ""),
             }
         )
