@@ -235,6 +235,29 @@ def _find_oracle_answer(history: List[Dict[str, Any]], start_idx: int) -> str:
     return "Unknown"
 
 
+def synthesize_conversation(
+    seeker_path: Path,
+    llm_config: LLMConfig,
+    turn_workers: int = 4,
+) -> Dict[str, Any]:
+    """Synthesize all turns for one conversation and return the data dict.
+
+    Unlike ``create_seeker_traces_file``, this does not write to disk —
+    the caller decides where to persist the result.
+    """
+    seeker_data = load_seeker_conversation(seeker_path)
+    llm_adapter = LLMAdapter(llm_config, save_history=False)
+    turns = create_turn_based_traces(seeker_data, llm_adapter, turn_workers=turn_workers)
+    return {
+        "seeker_path": str(seeker_path),
+        "agent_type": seeker_data.get("agent_type", "seeker"),
+        "config": seeker_data.get("config", {}),
+        "observability_mode": seeker_data.get("observability_mode"),
+        "total_turns": len(turns),
+        "turns": turns,
+    }
+
+
 def create_seeker_traces_file(
     input_path: Path,
     output_path: Path,
