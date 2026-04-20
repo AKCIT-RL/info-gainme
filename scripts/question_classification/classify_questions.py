@@ -23,15 +23,15 @@ unless ``--force`` is passed.
 Usage
 -----
     # Sample 30 conversations per stratum (recommended for headline numbers)
-    python3 scripts/classify_questions.py \
+    python3 scripts/question_classification/classify_questions.py \
         --per-stratum 30 \
         --max-concurrency 32
 
     # Full sweep (all conversations, capped per stratum)
-    python3 scripts/classify_questions.py --per-stratum 99999
+    python3 scripts/question_classification/classify_questions.py --per-stratum 99999
 
     # Classify a single seeker.json (debug)
-    python3 scripts/classify_questions.py \
+    python3 scripts/question_classification/classify_questions.py \
         --seeker-file outputs/models/.../conversations/.../seeker.json
 
 Output

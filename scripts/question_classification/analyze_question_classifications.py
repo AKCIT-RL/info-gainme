@@ -20,8 +20,8 @@ for plotting and reporting in a notebook:
 
 Run order:
 
-    python3 scripts/flatten_question_classifications.py
-    python3 scripts/analyze_question_classifications.py
+    python3 scripts/question_classification/flatten_question_classifications.py
+    python3 scripts/question_classification/analyze_question_classifications.py
 """
 
 from __future__ import annotations
