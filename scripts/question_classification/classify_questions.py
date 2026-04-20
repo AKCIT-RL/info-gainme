@@ -129,14 +129,8 @@ class BatchClassification(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Seeker.json parsing
+# turns.jsonl parsing
 # ---------------------------------------------------------------------------
-
-
-_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
-# Oracle responses include a "[Computer] - Active candidates..." block after
-# the first line in FO mode; capture only the Oracle's one-line answer.
-_ORACLE_RE = re.compile(r"\[Oracle\]\s*-\s*([^\n]+)")
 
 
 @dataclass
@@ -146,22 +140,19 @@ class TurnQA:
     oracle_answer: str
 
 
-def extract_turns(seeker_json: dict[str, Any]) -> list[TurnQA]:
-    """Pair each seeker question with the Oracle's one-line reply."""
+def extract_turns(turns_path: Path) -> list[TurnQA]:
+    """Read turns from turns.jsonl — one JSON object per line."""
     turns: list[TurnQA] = []
-    pending_q: str | None = None
-    idx = 0
-    for msg in seeker_json.get("history", []):
-        role = msg.get("role")
-        content = msg.get("content", "") or ""
-        if role == "assistant":
-            pending_q = _THINK_RE.sub("", content).strip()
-        elif role == "user" and pending_q is not None:
-            m = _ORACLE_RE.search(content)
-            answer = m.group(1).strip() if m else content.strip()
-            idx += 1
-            turns.append(TurnQA(idx, pending_q, answer))
-            pending_q = None
+    for line in turns_path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        t = json.loads(line)
+        turns.append(TurnQA(
+            turn=t["turn_index"],
+            question=t["question"]["text"],
+            oracle_answer=t["answer"]["text"],
+        ))
     return turns
 
 
@@ -204,7 +195,7 @@ def discover_conversations(outputs_root: Path) -> dict[Stratum, list[Path]]:
             stratum = _parse_experiment(model_dir.name, exp_dir.name)
             if stratum is None:
                 continue
-            buckets[stratum].extend(exp_dir.glob("conversations/*/seeker.json"))
+            buckets[stratum].extend(exp_dir.glob("conversations/*/turns.jsonl"))
     return buckets
 
 
@@ -317,6 +308,7 @@ def build_user_message(turns: list[TurnQA], domain: str) -> str:
     return "\n".join(lines)
 
 
+_THINK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
 _WS_RE = re.compile(r"\s+")
 
 
@@ -383,14 +375,14 @@ async def classify_conversation_batch(
 
 
 async def classify_conversation(
-    seeker_path: Path,
+    turns_path: Path,
     stratum: Stratum,
     client: AsyncOpenAI,
     model: str,
     thinking: bool,
     semaphore: asyncio.Semaphore,
 ) -> dict[str, Any]:
-    turns = extract_turns(json.loads(seeker_path.read_text()))
+    turns = extract_turns(turns_path)
 
     try:
         classifications = await classify_conversation_batch(
@@ -421,13 +413,13 @@ async def classify_conversation(
         ]
 
     return {
-        "seeker_path": str(seeker_path),
+        "turns_path": str(turns_path),
         "experiment": stratum.experiment,
         "model_slug": stratum.model_slug,
         "domain": stratum.domain,
         "mode": stratum.mode,
         "cot": stratum.cot,
-        "target": seeker_path.parent.name,
+        "target": turns_path.parent.name,
         "num_turns": len(turns),
         "turns": turn_payloads,
     }
@@ -483,11 +475,7 @@ def summarise(conv_results: list[dict[str, Any]]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
-def _out_path(out_dir: Path, stratum: Stratum, seeker: Path) -> Path:
-    return out_dir / stratum.experiment / seeker.parent.name / "classification.json"
-
-
-def _stratum_from_seeker_file(path: Path) -> Stratum:
+def _stratum_from_turns_file(path: Path) -> Stratum:
     parts = path.resolve().parts
     try:
         i = parts.index("models")
@@ -501,8 +489,8 @@ def _stratum_from_seeker_file(path: Path) -> Stratum:
 async def _amain(args: argparse.Namespace) -> int:
     rng = random.Random(args.seed)
 
-    if args.seeker_file is not None:
-        picks = [(_stratum_from_seeker_file(args.seeker_file), args.seeker_file)]
+    if args.turns_file is not None:
+        picks = [(_stratum_from_turns_file(args.turns_file), args.turns_file)]
     else:
         buckets = discover_conversations(args.outputs_root)
         print(f"Discovered {sum(len(v) for v in buckets.values())} conversations across {len(buckets)} strata.")
@@ -521,42 +509,47 @@ async def _amain(args: argparse.Namespace) -> int:
         print("No conversations to classify.", file=sys.stderr)
         return 1
 
-    args.out_dir.mkdir(parents=True, exist_ok=True)
+    # Resumability: load already-classified turns_path keys from existing JSONL.
+    out_jsonl = args.out_jsonl
+    out_jsonl.parent.mkdir(parents=True, exist_ok=True)
+    if args.force and out_jsonl.exists():
+        out_jsonl.unlink()
+    done_paths: set[str] = set()
     existing: list[dict[str, Any]] = []
-    todo: list[tuple[Stratum, Path]] = []
-    for st, path in picks:
-        p = _out_path(args.out_dir, st, path)
-        if not args.force and p.exists():
-            try:
-                existing.append(json.loads(p.read_text()))
+    if out_jsonl.exists():
+        for line in out_jsonl.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
                 continue
+            try:
+                rec = json.loads(line)
+                done_paths.add(rec["turns_path"])
+                existing.append(rec)
             except Exception as e:  # noqa: BLE001
-                print(f"  warning: could not reload {p} ({e}); will re-classify", file=sys.stderr)
-        todo.append((st, path))
+                print(f"  warning: skipping malformed JSONL line ({e})", file=sys.stderr)
+
+    todo = [(st, p) for st, p in picks if str(p) not in done_paths]
     print(f"Resume: {len(existing)} already classified, {len(todo)} to do.")
 
-    if not todo:
-        results: list[dict[str, Any]] = []
-    else:
+    results: list[dict[str, Any]] = []
+    if todo:
         client = AsyncOpenAI(base_url=args.base_url, api_key=args.api_key)
         thinking = not args.no_thinking
         semaphore = asyncio.Semaphore(args.max_concurrency)
         total = len(todo)
-        done = 0
+        n_done = 0
         lock = asyncio.Lock()
 
         async def _run(stratum: Stratum, path: Path) -> dict[str, Any]:
-            nonlocal done
+            nonlocal n_done
             res = await classify_conversation(path, stratum, client, args.model, thinking, semaphore)
-            _out_path(args.out_dir, stratum, path).parent.mkdir(parents=True, exist_ok=True)
-            _out_path(args.out_dir, stratum, path).write_text(
-                json.dumps(res, indent=2, ensure_ascii=False)
-            )
             async with lock:
-                done += 1
+                with out_jsonl.open("a", encoding="utf-8") as fh:
+                    fh.write(json.dumps(res, ensure_ascii=False) + "\n")
+                n_done += 1
                 errs = sum(1 for t in res["turns"] if "error" in t["classification"])
                 tag = f"({errs} turn errors)" if errs else "ok"
-                print(f"[{done}/{total}] {stratum.experiment}/{path.parent.name} — {tag}")
+                print(f"[{n_done}/{total}] {stratum.experiment}/{path.parent.name} — {tag}")
             return res
 
         try:
@@ -566,7 +559,7 @@ async def _amain(args: argparse.Namespace) -> int:
 
     conv_results = existing + results
     summary = summarise(conv_results)
-    summary_path = args.out_dir / "summary.json"
+    summary_path = out_jsonl.with_suffix(".summary.json")
     summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False))
 
     print("\n=== Summary ===")
@@ -578,7 +571,8 @@ async def _amain(args: argparse.Namespace) -> int:
         print("  subclass tags (top):")
         for name, count in list(summary["subclass_counts"].items())[:20]:
             print(f"    {count:>4}  {name}")
-    print(f"\nWrote: {summary_path}")
+    print(f"\nWrote: {out_jsonl}  ({len(conv_results)} conversations)")
+    print(f"Wrote: {summary_path}")
     return 0
 
 
@@ -588,8 +582,13 @@ def main() -> int:
     p.add_argument("--api-key", default="NINGUEM-TA-PURO-2K26")
     p.add_argument("--model", default="nvidia/Kimi-K2.5-NVFP4")
     p.add_argument("--outputs-root", type=Path, default=Path("outputs"))
-    p.add_argument("--out-dir", type=Path, default=Path("outputs/question_classification"))
-    p.add_argument("--seeker-file", type=Path, default=None, help="Classify a single seeker.json (overrides sampling).")
+    p.add_argument(
+        "--out-jsonl",
+        type=Path,
+        default=Path("outputs/question_classifications.jsonl"),
+        help="Output JSONL file (one conversation per line). Appended to on resume.",
+    )
+    p.add_argument("--turns-file", type=Path, default=None, help="Classify a single turns.jsonl (overrides sampling).")
     p.add_argument(
         "--per-stratum",
         type=int,
@@ -600,7 +599,7 @@ def main() -> int:
     p.add_argument("--max-concurrency", type=int, default=16, help="Max in-flight LLM requests.")
     p.add_argument("--no-thinking", action="store_true", help="Disable reasoning mode on the classifier.")
     p.add_argument("--dry-run", action="store_true", help="List what would be classified and exit.")
-    p.add_argument("--force", action="store_true", help="Re-classify even when classification.json exists.")
+    p.add_argument("--force", action="store_true", help="Re-classify all conversations, ignoring existing JSONL.")
     args = p.parse_args()
     return asyncio.run(_amain(args))
 

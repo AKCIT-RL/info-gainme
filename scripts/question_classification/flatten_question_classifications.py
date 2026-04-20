@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Flatten per-conversation classification JSONs into one wide CSV.
+"""Flatten the question-classifications JSONL into one wide CSV.
 
 Each row of the output CSV is a single seeker turn with its full label set.
-The resulting file feeds pandas / notebooks / SQL directly — no per-file
-parsing needed downstream.
+The resulting file feeds pandas / notebooks / SQL directly.
 
-Input:
-    outputs/question_classification/<experiment>/<target>/classification.json
+Input (default):
+    outputs/question_classifications.jsonl   (one conversation JSON per line)
 
 Output (default):
     outputs/question_classifications.csv
@@ -152,10 +151,10 @@ def _extract_subclasses(cls: dict[str, Any]) -> tuple[list[str], str]:
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument(
-        "--input-dir",
+        "--input-jsonl",
         type=Path,
-        default=Path("outputs/question_classification"),
-        help="Root holding <experiment>/<target>/classification.json files.",
+        default=Path("outputs/question_classifications.jsonl"),
+        help="JSONL produced by classify_questions.py (one conversation per line).",
     )
     p.add_argument(
         "--output-csv",
@@ -165,34 +164,38 @@ def main() -> int:
     )
     args = p.parse_args()
 
-    files = sorted(args.input_dir.glob("*/*/classification.json"))
-    if not files:
-        print(f"No classification.json files found under {args.input_dir}", file=sys.stderr)
+    if not args.input_jsonl.exists():
+        print(f"ERROR: {args.input_jsonl} not found. Run classify_questions.py first.", file=sys.stderr)
         return 1
 
     args.output_csv.parent.mkdir(parents=True, exist_ok=True)
 
     total_turns = 0
+    total_convs = 0
     skipped = 0
     with args.output_csv.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.DictWriter(fh, fieldnames=COLUMNS)
         writer.writeheader()
-        for i, path in enumerate(files, 1):
+        for i, line in enumerate(args.input_jsonl.read_text(encoding="utf-8").splitlines(), 1):
+            line = line.strip()
+            if not line:
+                continue
             try:
-                conv = json.loads(path.read_text())
-            except Exception as e:  # noqa: BLE001 — corrupt files should not abort the batch
-                print(f"  skip {path}: {e}", file=sys.stderr)
+                conv = json.loads(line)
+            except Exception as e:  # noqa: BLE001
+                print(f"  skip line {i}: {e}", file=sys.stderr)
                 skipped += 1
                 continue
             for row in iter_rows(conv):
                 writer.writerow(row)
                 total_turns += 1
+            total_convs += 1
             if i % 500 == 0:
-                print(f"  processed {i}/{len(files)} conversations ({total_turns} rows so far)")
+                print(f"  processed {i} conversations ({total_turns} rows so far)")
 
-    print(f"\nWrote {total_turns} rows from {len(files) - skipped} conversations to {args.output_csv}")
+    print(f"\nWrote {total_turns} rows from {total_convs} conversations to {args.output_csv}")
     if skipped:
-        print(f"Skipped {skipped} unreadable file(s).")
+        print(f"Skipped {skipped} malformed line(s).")
     return 0
 
 
