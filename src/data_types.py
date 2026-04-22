@@ -22,7 +22,7 @@ class Question:
 
 class OracleResponse(BaseModel):
     rationale: str
-    answer: Literal["Yes", "No"]
+    answer: Literal["Yes", "No", "Yes! You found the target!"]
     game_over: bool
 
 @dataclass
