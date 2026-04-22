@@ -138,10 +138,21 @@ def main() -> int:
           f"({scope})")
     print("=" * 70)
 
+    # Count total runs across ALL experiments (for global %), not just affected ones.
+    outputs_root = Path("outputs")
+    global_total_rows = 0
+    for csv_file in outputs_root.rglob("runs.csv"):
+        try:
+            with csv_file.open() as f:
+                global_total_rows += sum(1 for _ in csv.DictReader(f))
+        except Exception:
+            pass
+
     totals = {
         "convs_deleted": 0,
         "rows_removed": 0,
         "rows_missing": 0,
+        "rows_total_before": 0,
         "metadata_missing": 0,
         "summaries_removed": 0,
     }
@@ -167,6 +178,8 @@ def main() -> int:
         missing_in_csv = len(keys_to_drop) - removed
         totals["rows_removed"] += removed
         totals["rows_missing"] += missing_in_csv
+        total_before = removed + kept
+        totals["rows_total_before"] += total_before
 
         # Delete conversation dirs
         for conv_path in valid_convs:
@@ -184,19 +197,31 @@ def main() -> int:
                         stale.unlink()
                     totals["summaries_removed"] += 1
 
-        print(f"  {exp_path.name}: {removed} rows removidas, "
+        pct = (removed / total_before * 100) if total_before else 0.0
+        print(f"  {exp_path.name}: {removed} rows removidas "
+              f"({pct:5.1f}% de {total_before}), "
               f"{len(valid_convs)} pastas {'seriam ' if args.dry_run else ''}apagadas "
-              f"({kept} runs restantes em runs.csv)")
+              f"({kept} runs restantes)")
 
     print("=" * 70)
-    print(f"Conversas {'que seriam ' if args.dry_run else ''}deletadas:  "
-          f"{totals['convs_deleted']}")
-    print(f"Linhas {'que seriam ' if args.dry_run else ''}removidas de runs.csv: "
-          f"{totals['rows_removed']}")
-    print(f"Linhas já ausentes em runs.csv:            {totals['rows_missing']}")
-    print(f"Metadata ausentes (ignoradas):             {totals['metadata_missing']}")
-    print(f"Summaries stale {'que seriam ' if args.dry_run else ''}removidos:      "
-          f"{totals['summaries_removed']}")
+    pct_affected_exp = (
+        totals["rows_removed"] / totals["rows_total_before"] * 100
+        if totals["rows_total_before"] else 0.0
+    )
+    pct_global = (
+        totals["rows_removed"] / global_total_rows * 100
+        if global_total_rows else 0.0
+    )
+    action = "que seriam " if args.dry_run else ""
+    print(f"Conversas {action}deletadas:                 {totals['convs_deleted']}")
+    print(f"Linhas {action}removidas de runs.csv:        {totals['rows_removed']}")
+    print(f"  % dentro dos experimentos afetados:     {pct_affected_exp:.2f}% "
+          f"({totals['rows_removed']}/{totals['rows_total_before']})")
+    print(f"  % do total de runs (todos experimentos): {pct_global:.2f}% "
+          f"({totals['rows_removed']}/{global_total_rows})")
+    print(f"Linhas já ausentes em runs.csv:           {totals['rows_missing']}")
+    print(f"Metadata ausentes (ignoradas):            {totals['metadata_missing']}")
+    print(f"Summaries stale {action}removidos:           {totals['summaries_removed']}")
 
     if args.dry_run:
         print("\nNada foi alterado. Rode sem --dry-run para aplicar.")
