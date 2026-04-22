@@ -35,10 +35,17 @@ from src.prompts import get_seeker_system_prompt
 # ---------------------------------------------------------------------------
 
 DEFAULT_ENDPOINTS: dict[str, str] = {
-    "Qwen3-8B":                   "http://10.100.0.112:8481/v1",
+    "Qwen3-8B":                    "http://10.100.0.112:8481/v1",
     "Qwen3-30B-A3B-Thinking-2507": "http://10.100.0.112:8480/v1",
-    "Qwen3-4B-Thinking-2507":     "http://10.100.0.113:9830/v1",
-    "Nemotron-Cascade-8B":        "http://10.100.0.112:8479/v1",
+    "Qwen3-4B-Thinking-2507":      "http://10.100.0.113:9830/v1",
+    "Nemotron-Cascade-8B":         "http://10.100.0.112:8479/v1",
+}
+
+# Models that need enable_thinking=true (mirrors benchmark config extra_body)
+THINKING_MODELS: set[str] = {
+    "Qwen3-4B-Thinking-2507",
+    "Qwen3-30B-A3B-Thinking-2507",
+    "Qwen3-8B",  # also supports thinking via same flag
 }
 
 SYSTEM_PROMPT = get_seeker_system_prompt(
@@ -95,8 +102,11 @@ def classify(text: str) -> str:
     return "FORMAT_BROKEN"
 
 
-def has_think_tag(text: str) -> bool:
-    return "<think>" in text.lower()
+def has_think_tag(text: Optional[str]) -> bool:
+    if not text:
+        return False
+    # vLLM may return reasoning directly in content (no tags) — treat long raw as thinking
+    return "<think>" in text.lower() or len(text) > 500
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +119,7 @@ def call_model(
     messages: list[dict],
     temperature: float = 0.6,
     max_tokens: int = 512,
+    enable_thinking: bool = False,
 ) -> tuple[str, Optional[str]]:
     """Return (final_content_without_think, raw_with_think_or_None).
 
@@ -118,12 +129,10 @@ def call_model(
     """
     import re
 
-    completion = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
+    kwargs: dict = dict(model=model, messages=messages, temperature=temperature, max_tokens=max_tokens)
+    if enable_thinking:
+        kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
+    completion = client.chat.completions.create(**kwargs)
     msg = completion.choices[0].message
     content = msg.content or ""
     extras = msg.model_extra or {}
@@ -167,7 +176,8 @@ def run_tests(endpoints: dict[str, str], reps: int) -> None:
 
             for i in range(reps):
                 try:
-                    content, raw = call_model(client, model_name, messages)
+                    thinking = model_name in THINKING_MODELS
+                    content, raw = call_model(client, model_name, messages, enable_thinking=thinking)
                     label = classify(content)
                     think = has_think_tag(raw) if raw else has_think_tag(content)
                     responses.append(content)
