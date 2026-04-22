@@ -83,8 +83,8 @@ This script:
 Defaults in the script: `Qwen3-4B-Thinking-2507` (seeker) + `Qwen3-8B` (oracle/pruner) in `dual` mode. **Always override via `--export=ALL,...`** — the old "positional arg" style is not supported.
 
 Key overridable vars (all via `--export=ALL,KEY=VAL,...`):
-- `MODEL1`, `MODEL1_NAME` — seeker HF id + served-model name
-- `MODEL2`, `MODEL2_NAME` — oracle/pruner HF id + served-model name
+- `MODEL1`, `MODEL1_NAME` — seeker HF id (for vLLM download) + served-model-name. **⚠️ `MODEL1_NAME` MUST match the `seeker.model` string in the target YAML verbatim** (usually short form, no `org/` prefix). The script generates `.servers_override_<JOBID>.yaml` keyed by `MODEL1_NAME`; if the YAML asks for `"Llama-3.2-1B-Instruct"` and you pass `MODEL1_NAME=meta-llama/Llama-3.2-1B-Instruct`, `config_loader.py` won't find the key, falls back to `OPENAI_API_KEY` → hits `api.openai.com` → 404 loop for hours (non-fatal, silently retries). Same rule for `MODEL2_NAME` ↔ `oracle.model`/`pruner.model`.
+- `MODEL2`, `MODEL2_NAME` — oracle/pruner HF id + served-model-name (same caveat)
 - `MODE=single|dual` (default `single`; use `dual` when seeker ≠ oracle model)
 - `CONFIGS_TARGET` — folder or single `.yaml`
 - `MODEL1_PORT`, `MODEL2_PORT` — override auto-assigned ports (base formula `8000 + (JOB_ID % 500) * 10`; script also probes with `ss -tln` and advances if busy)
@@ -123,6 +123,30 @@ python3 benchmark_runner.py --config configs/full/8b/geo_160_8b_fo_cot.yaml
 ```
 
 **Resumability:** Benchmarks detect completed `(target_id, run_index)` pairs from the existing `runs.csv` and skip them automatically. Useful for recovering from crashes or extending a partial run. The `BenchmarkRunner` reads `runs.csv`, filters targets that haven't been fully run, and continues where it left off. To restart from scratch, remove or rename the output directory.
+
+## Job sanity check — is it actually producing?
+
+A SLURM job in `R` state ≠ job producing runs. Always confirm with this checklist:
+
+1. **vLLMs alive**: `curl -s http://localhost:<port>/v1/models` returns JSON with the expected `served-model-name` (both seeker and oracle/pruner). `ps | grep vllm.*api_server` shows both processes.
+2. **Override file exists**: `.servers_override_<JOBID>.yaml` in the project root, keys matching `MODEL*_NAME`.
+3. **`runs.csv` growing**: `wc -l outputs/.../<exp>/runs.csv` + `stat` mtime ≤ few minutes old. A CSV with **1 line (header only)** after hours of runtime = job is broken, not running slow.
+4. **No OpenAI fallback in logs**: `grep api.openai.com logs/info-gainme-full-<JOBID>.out` should return nothing. Any hit means `MODEL_NAME` ↔ `seeker.model`/`oracle.model`/`pruner.model` mismatch → config_loader fell back to `OPENAI_API_KEY`.
+5. **No `"died before readiness"`**: script's `wait_vllm_ready` aborts if vLLM subprocess exits early. If you see this in `.out`, check the `.log` of that vLLM — usually OOM, bad path, or CUDA arch mismatch (B200 needs `enforce-eager=false`).
+
+**Common failure patterns:**
+- `runs.csv` only header, mtime progressing every ~7h → `MODEL_NAME` mismatch; each config exhausts 50 retries × ~60s backoff then moves on. Cancel and resubmit with `MODEL_NAME` matching YAML exactly.
+- `runs.csv` mtime frozen for hours while job still `R` → vLLM died silently but the bash script keeps polling. Check the vLLM `.log`, likely OOM or a downstream dependency (the other vLLM) crashed.
+- Oracle/pruner port collision between consecutive JOB_IDs → was the old `%1000` bug, fixed to `%500 * 10 + ss probe`. If you see `"model X does not exist"` in the seeker's log pointing to the OTHER job's port, the fix didn't take effect — verify `dgx/run_full_benchmark.sh` is synced.
+- Pruner returning invalid JSON (Nemotron/Olmo sometimes emit control chars) → `Pruner JSON parse error` in logs; benchmark skips pruning that turn (`active=N, pruned=0`). Run still completes but produces degenerate data (30 turns, IG=0). Consider changing oracle/pruner model.
+
+**Auditing what's left across nodes:**
+```bash
+# DONE / INCOMPLETE / MISSING per config, grouped by folder:
+python3 scripts/audit_experiments.py                                                          # current node
+ssh 10.100.0.113 'cd /raid/user_danielpedrozo/projects/info-gainme_dev && python3 scripts/audit_experiments.py'  # other node
+```
+The script reads each YAML under `configs/full/**`, computes `expected = num_targets × runs_per_target`, and counts unique `(target_id, run_index)` pairs in the corresponding `outputs/models/s_<triple>/<exp>/runs.csv`. Take the max across nodes when a config is split.
 
 ## Analysis pipeline
 
@@ -244,6 +268,7 @@ scripts/
 ## Utility scripts
 
 **Post-processing & data maintenance:**
+- `scripts/audit_experiments.py` — walks `configs/full/**/*.yaml`, reports DONE / INCOMPLETE / MISSING per config by counting unique `(target_id, run_index)` pairs in each `runs.csv`. Use to find gaps before resubmitting.
 - `synthesize_from_runs_csv.py` — batch synthesize reasoning traces from runs.csv with custom settings (alternative to `run_synthesize_traces.sh`)
 - `remove_duplicates_runs.py` — remove duplicate rows from runs.csv by `(target_id, run_index)` pair
 - `scripts/evaluate_seeker_choices.py` — evaluate a single conversation's question choices (debug-friendly version of batch evaluator)
