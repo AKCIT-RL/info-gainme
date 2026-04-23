@@ -124,6 +124,7 @@ def call_model(
     messages: list[dict],
     max_tokens: int = 24000,
     enable_thinking: bool | None = None,
+    temperature: float | None = None,
 ) -> dict:
     """Call the model and return a dict with all captured fields.
 
@@ -139,6 +140,8 @@ def call_model(
     kwargs: dict = dict(model=model, messages=messages, max_tokens=max_tokens)
     if enable_thinking is not None:
         kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": enable_thinking}}
+    if temperature is not None:
+        kwargs["temperature"] = temperature
 
     completion = client.chat.completions.create(**kwargs)
     msg = completion.choices[0].message
@@ -192,12 +195,14 @@ def run_tests(
     out_dir: Path,
     *,
     disable_thinking: bool = False,
+    temperature: float | None = None,
 ) -> None:
     from collections import Counter
     from datetime import datetime
 
     run_started = datetime.now().isoformat(timespec="seconds")
-    suffix = "_no_think" if disable_thinking else ""
+    temp_tag = f"_t{temperature:.2f}".replace(".", "_") if temperature is not None else ""
+    suffix = ("_no_think" if disable_thinking else "") + temp_tag
     results: dict[str, dict] = {}
     manifest_reps: list[dict] = []
 
@@ -211,7 +216,7 @@ def run_tests(
             thinking: bool | None = not disable_thinking  # True or False (explicit)
         else:
             thinking = None  # omit the flag entirely
-        model_folder = _slug(model_name) + ("_no_think" if disable_thinking else "")
+        model_folder = _slug(model_name) + ("_no_think" if disable_thinking else "") + temp_tag
         results[model_name] = {
             "base_url": base_url,
             "enable_thinking": thinking,
@@ -232,7 +237,7 @@ def run_tests(
                 rep_ts = datetime.now().isoformat(timespec="milliseconds")
                 rep_num = i + 1
                 try:
-                    call = call_model(client, model_name, messages, enable_thinking=thinking)
+                    call = call_model(client, model_name, messages, enable_thinking=thinking, temperature=temperature)
                     final = call["content_final"]
                     raw = call["content_raw"]
                     reasoning = call["reasoning"]
@@ -400,6 +405,8 @@ def main() -> None:
                         help="Run only this model (must exist in DEFAULT_ENDPOINTS or --endpoints)")
     parser.add_argument("--no-thinking", action="store_true",
                         help="Disable chat_template_kwargs.enable_thinking for all models")
+    parser.add_argument("--temperature", type=float, default=None,
+                        help="Sampling temperature (e.g. 0.7). Omitted by default (model default).")
     args = parser.parse_args()
 
     endpoints = DEFAULT_ENDPOINTS.copy()
@@ -412,7 +419,7 @@ def main() -> None:
         endpoints = {args.model: endpoints[args.model]}
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    run_tests(endpoints, args.reps, args.out_dir, disable_thinking=args.no_thinking)
+    run_tests(endpoints, args.reps, args.out_dir, disable_thinking=args.no_thinking, temperature=args.temperature)
 
 
 if __name__ == "__main__":
