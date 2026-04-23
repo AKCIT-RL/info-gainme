@@ -44,7 +44,6 @@ DEFAULT_ENDPOINTS: dict[str, str] = {
 # Models that need enable_thinking=true (mirrors benchmark config extra_body)
 THINKING_MODELS: set[str] = {
     "Qwen3-4B-Thinking-2507",
-    "Qwen3-30B-A3B-Thinking-2507",
     "Qwen3-8B",  # also supports thinking via same flag
 }
 
@@ -372,11 +371,18 @@ def main() -> None:
                         help='JSON dict of model→url overrides')
     parser.add_argument("--out-dir", type=Path, default=Path("outputs/cold_start"),
                         help="Output directory (default: outputs/cold_start)")
+    parser.add_argument("--model", type=str, default=None,
+                        help="Run only this model (must exist in DEFAULT_ENDPOINTS or --endpoints)")
     args = parser.parse_args()
 
     endpoints = DEFAULT_ENDPOINTS.copy()
     if args.endpoints:
         endpoints.update(json.loads(args.endpoints))
+
+    if args.model:
+        if args.model not in endpoints:
+            parser.error(f"model {args.model!r} not found. Available: {sorted(endpoints)}")
+        endpoints = {args.model: endpoints[args.model]}
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
     run_tests(endpoints, args.reps, args.out_dir)
