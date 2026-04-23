@@ -92,12 +92,7 @@ class LLMAdapter:
         self._history.clear()
 
     def pop_last_if_assistant(self) -> bool:
-        """Drop the last history entry if it is an assistant message.
-
-        Used by callers that need to retry a failed generation so the next
-        call doesn't include the malformed response in its context. Returns
-        True if an entry was popped.
-        """
+        """Drop the last history entry if it is an assistant message."""
         if not self._save_history or not self._history:
             return False
         if self._history[-1].get("role") != "assistant":

@@ -69,10 +69,6 @@ class OracleAgent:
         """Add Seeker's question to conversation history."""
         self._llm_adapter.append_history("user", f"[Seeker] - {question.text}")
 
-    # Structured output spec for the Oracle: pinned to the Pydantic schema of
-    # OracleResponse (answer is Literal["Yes", "No"]). Backends that honor the
-    # OpenAI json_schema response_format (vLLM ≥0.6, OpenAI, Gemini) will reject
-    # outputs that don't match.
     _RESPONSE_FORMAT = {
         "type": "json_schema",
         "json_schema": {
@@ -82,18 +78,11 @@ class OracleAgent:
         },
     }
 
-    # Number of times we retry a malformed Oracle reply before giving up.
     _VALIDATION_RETRIES = 3
 
     def answer_seeker(self) -> Answer:
-        """Generate an answer to the Seeker's question.
-
-        Retries up to ``_VALIDATION_RETRIES`` times if the LLM returns a
-        response that doesn't satisfy the OracleResponse schema — defensive
-        in case the backend doesn't honor the json_schema response_format.
-        """
-        last_error: Exception | None = None
-        oracle_response: OracleResponse | None = None
+        """Generate an answer to the Seeker's question."""
+        last_error: ValidationError | None = None
         for attempt in range(self._VALIDATION_RETRIES):
             response = self._llm_adapter.generate(response_format=self._RESPONSE_FORMAT)
             response = llm_final_content(response)
@@ -106,10 +95,10 @@ class OracleAgent:
                     "OracleResponse validation failed (attempt %d/%d): %s | raw=%r",
                     attempt + 1, self._VALIDATION_RETRIES, exc, response[:200],
                 )
-                # Drop the bad reply so the retry sees a clean context.
                 self._llm_adapter.pop_last_if_assistant()
-        if oracle_response is None:
-            raise last_error  # type: ignore[misc]
+        else:
+            assert last_error is not None
+            raise last_error
 
         is_compliant = self._check_compliance(oracle_response.answer)
         self._answers_given += 1
