@@ -175,7 +175,13 @@ def _dump_json(path: Path, payload: object) -> None:
         json.dump(payload, f, indent=2, ensure_ascii=False, default=str)
 
 
-def run_tests(endpoints: dict[str, str], reps: int, out_dir: Path) -> None:
+def run_tests(
+    endpoints: dict[str, str],
+    reps: int,
+    out_dir: Path,
+    *,
+    disable_thinking: bool = False,
+) -> None:
     from collections import Counter
     from datetime import datetime
 
@@ -189,7 +195,7 @@ def run_tests(endpoints: dict[str, str], reps: int, out_dir: Path) -> None:
         print(f"URL:   {base_url}")
         print(f"{'='*60}")
         client = OpenAI(api_key="EMPTY", base_url=base_url)
-        thinking = model_name in THINKING_MODELS
+        thinking = (model_name in THINKING_MODELS) and not disable_thinking
         results[model_name] = {
             "base_url": base_url,
             "enable_thinking": thinking,
@@ -373,6 +379,8 @@ def main() -> None:
                         help="Output directory (default: outputs/cold_start)")
     parser.add_argument("--model", type=str, default=None,
                         help="Run only this model (must exist in DEFAULT_ENDPOINTS or --endpoints)")
+    parser.add_argument("--no-thinking", action="store_true",
+                        help="Disable chat_template_kwargs.enable_thinking for all models")
     args = parser.parse_args()
 
     endpoints = DEFAULT_ENDPOINTS.copy()
@@ -385,7 +393,7 @@ def main() -> None:
         endpoints = {args.model: endpoints[args.model]}
 
     args.out_dir.mkdir(parents=True, exist_ok=True)
-    run_tests(endpoints, args.reps, args.out_dir)
+    run_tests(endpoints, args.reps, args.out_dir, disable_thinking=args.no_thinking)
 
 
 if __name__ == "__main__":
