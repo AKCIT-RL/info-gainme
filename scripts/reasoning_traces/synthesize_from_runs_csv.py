@@ -7,11 +7,14 @@ and processes all corresponding seeker.json files to create seeker_traces.json f
 
 import argparse
 import csv
+import sys
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from os import getenv
 from typing import List, Set
 from dotenv import load_dotenv
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.analysis.reasoning_synthesis import create_seeker_traces_file
 from src.agents.llm_adapter import LLMConfig

@@ -245,15 +245,21 @@ scripts/
   generate_model_summary_csv.py   ← per-model aggregation CSV
   aggregate_metrics_by_city.py    ← city-level metric aggregation
   aggregate_ig_over_time.py       ← IG-over-turns aggregation
+  aggregate_cold_start.py         ← aggregate cold-start results
   plot_aggregated_ig.py           ← plot IG-over-turns curves
   compute_optimal_baseline.py     ← optimal-play upper-bound baseline
   extract_top_cities_by_population.py  ← data prep helper
   prepare_diseases_csv.py         ← prepare diseases CSV for dataset creation
+  remove_duplicates_runs.py       ← de-dup runs.csv by (target_id, run_index)
+  validate_oracle_answers.py      ← re-check Oracle answers against the ground truth
+  delete_affected_runs.py         ← remove runs affected by oracle bugs
   delete_evaluations_with_connection_errors.py
   recalculate_question_evaluation_se.py
   download_from_hf.py / upload_to_hf.py  ← HuggingFace dataset sync (see also dgx/ shell wrappers)
   reasoning_traces/               ← CoT trace synthesis + question-choice evaluation
     synthesize_traces.py              ← batch synthesize traces across experiments
+    synthesize_from_runs_csv.py       ← synthesize traces for a specific runs.csv
+    synthesize_reasoning_traces.py    ← (legacy) single-seeker.json synthesis
     analyze_traces.py                 ← seeker_traces.json → reasoning_traces_analysis.json
     evaluate_all_seeker_choices.py    ← batch question-choice evaluation from runs.csv
     evaluate_seeker_choices.py        ← single-conversation question-choice evaluation
@@ -275,15 +281,15 @@ Note: the `dgx/` shell wrappers (e.g. `run_synthesize_traces.sh`, `run_analyze_t
 
 **Geo vs flat domains:** The geo domain uses `KnowledgeGraph` (hierarchical tree: region→subregion→country→state→city). When all cities under a parent are pruned, the parent is also pruned recursively (`apply_pruning` walks up via `has_child`/`contains` edges). Objects and diseases use the flat `CandidatePool` instead.
 
-**Question-choice evaluation** (post-hoc, CoT only): `scripts/evaluate_all_seeker_choices.py` reads a `runs.csv`, finds conversations with `seeker_traces.json`, then for each turn re-runs Oracle+Pruner on every question the Seeker considered to compute counterfactual info gains. Results saved as `question_evaluation.json` per conversation and `question_evaluations_summary.json` per experiment. This pipeline is read-only — it never modifies turns or conversation files.
+**Question-choice evaluation** (post-hoc, CoT only): `scripts/reasoning_traces/evaluate_all_seeker_choices.py` reads a `runs.csv`, finds conversations with `seeker_traces.json`, then for each turn re-runs Oracle+Pruner on every question the Seeker considered to compute counterfactual info gains. Results saved as `question_evaluation.json` per conversation and `question_evaluations_summary.json` per experiment. This pipeline is read-only — it never modifies turns or conversation files.
 
 ## Utility scripts
 
 **Post-processing & data maintenance:**
 - `scripts/audit_experiments.py` — walks `configs/full/**/*.yaml`, reports DONE / INCOMPLETE / MISSING per config by counting unique `(target_id, run_index)` pairs in each `runs.csv`. Use to find gaps before resubmitting.
-- `synthesize_from_runs_csv.py` — batch synthesize reasoning traces from runs.csv with custom settings (alternative to `run_synthesize_traces.sh`)
-- `remove_duplicates_runs.py` — remove duplicate rows from runs.csv by `(target_id, run_index)` pair
-- `scripts/evaluate_seeker_choices.py` — evaluate a single conversation's question choices (debug-friendly version of batch evaluator)
+- `scripts/reasoning_traces/synthesize_from_runs_csv.py` — batch synthesize reasoning traces from runs.csv with custom settings (alternative to `run_synthesize_traces.sh`)
+- `scripts/remove_duplicates_runs.py` — remove duplicate rows from runs.csv by `(target_id, run_index)` pair
+- `scripts/reasoning_traces/evaluate_seeker_choices.py` — evaluate a single conversation's question choices (debug-friendly version of batch evaluator)
 - `scripts/delete_evaluations_with_connection_errors.py` — clean up failed evaluation runs
 - `scripts/recalculate_question_evaluation_se.py` — recalculate standard error for existing evaluations
 

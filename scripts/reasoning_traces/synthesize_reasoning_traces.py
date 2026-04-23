@@ -8,9 +8,12 @@ synthesized seeker_traces.json files with turn-based structure:
 """
 
 import argparse
+import sys
 from os import getenv
 from pathlib import Path
 from dotenv import load_dotenv
+
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from src.analysis.reasoning_synthesis import create_seeker_traces_file
 from src.agents.llm_adapter import LLMConfig
