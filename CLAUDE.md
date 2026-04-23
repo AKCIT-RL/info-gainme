@@ -37,9 +37,9 @@ There is no automated test suite. Validate changes manually using the demo scrip
 
 **Run a single game** to test locally:
 ```bash
-python3 demo_single_game.py                    # generic test
-python3 demo_objects_game.py                   # objects domain
-python3 demo_diseases_game.py                  # diseases domain
+python3 demos/demo_single_game.py              # generic test
+python3 demos/demo_objects_game.py             # objects domain
+python3 demos/demo_diseases_game.py            # diseases domain
 ```
 
 These demos use a small subset of candidates and don't require large-scale infrastructure. Useful for testing agent logic or configs.
@@ -209,6 +209,10 @@ No-CoT configs omit both fields entirely.
 ```
 benchmark_runner.py        ← CLI entrypoint; loads config, dataset, runs BenchmarkRunner
 human_benchmark_runner.py  ← Interactive CLI runner for the human seeker baseline
+demos/
+  demo_single_game.py      ← quick smoke test (geo domain)
+  demo_objects_game.py     ← quick smoke test (objects domain)
+  demo_diseases_game.py    ← quick smoke test (diseases domain)
 src/
   benchmark_config.py      ← BenchmarkConfig dataclass (agent configs + game settings)
   benchmark.py             ← BenchmarkRunner: ThreadPoolExecutor, incremental CSV writes
@@ -252,6 +256,9 @@ scripts/
   delete_evaluations_with_connection_errors.py
   recalculate_question_evaluation_se.py
   download_from_hf.py / upload_to_hf.py  ← HuggingFace dataset sync (see also dgx/ shell wrappers)
+  remove_duplicates_runs.py     ← remove duplicate (target_id, run_index) rows from runs.csv
+  synthesize_from_runs_csv.py   ← batch synthesize traces with custom settings
+  synthesize_reasoning_traces.py ← single-experiment trace synthesizer
   reasoning_traces/               ← CoT trace synthesis + question-choice evaluation
     synthesize_traces.py              ← batch synthesize traces across experiments
     analyze_traces.py                 ← seeker_traces.json → reasoning_traces_analysis.json
@@ -281,8 +288,8 @@ Note: the `dgx/` shell wrappers (e.g. `run_synthesize_traces.sh`, `run_analyze_t
 
 **Post-processing & data maintenance:**
 - `scripts/audit_experiments.py` — walks `configs/full/**/*.yaml`, reports DONE / INCOMPLETE / MISSING per config by counting unique `(target_id, run_index)` pairs in each `runs.csv`. Use to find gaps before resubmitting.
-- `synthesize_from_runs_csv.py` — batch synthesize reasoning traces from runs.csv with custom settings (alternative to `run_synthesize_traces.sh`)
-- `remove_duplicates_runs.py` — remove duplicate rows from runs.csv by `(target_id, run_index)` pair
+- `scripts/synthesize_from_runs_csv.py` — batch synthesize reasoning traces from runs.csv with custom settings (alternative to `run_synthesize_traces.sh`)
+- `scripts/remove_duplicates_runs.py` — remove duplicate rows from runs.csv by `(target_id, run_index)` pair
 - `scripts/evaluate_seeker_choices.py` — evaluate a single conversation's question choices (debug-friendly version of batch evaluator)
 - `scripts/delete_evaluations_with_connection_errors.py` — clean up failed evaluation runs
 - `scripts/recalculate_question_evaluation_se.py` — recalculate standard error for existing evaluations
