@@ -47,6 +47,12 @@ THINKING_MODELS: set[str] = {
     "Qwen3-8B",  # also supports thinking via same flag
 }
 
+# Models that support the enable_thinking flag (True or False).
+# For these, --no-thinking explicitly sends enable_thinking=False instead of omitting the field.
+THINKING_CAPABLE_MODELS: set[str] = THINKING_MODELS | {
+    "Nemotron-Cascade-8B",
+}
+
 SYSTEM_PROMPT = get_seeker_system_prompt(
     target_noun="city",
     domain_description="geographic (cities, countries, regions)",
@@ -117,17 +123,22 @@ def call_model(
     model: str,
     messages: list[dict],
     max_tokens: int = 24000,
-    enable_thinking: bool = False,
+    enable_thinking: bool | None = None,
 ) -> dict:
     """Call the model and return a dict with all captured fields.
 
     Handles two vLLM layouts:
       - reasoning in model_extra["reasoning"] / ["reasoning_content"]
       - reasoning embedded directly in msg.content as <think>...</think>
+
+    enable_thinking:
+      True  → send enable_thinking=True
+      False → send enable_thinking=False (explicit disable for capable models)
+      None  → omit the field entirely
     """
     kwargs: dict = dict(model=model, messages=messages, max_tokens=max_tokens)
-    if enable_thinking:
-        kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
+    if enable_thinking is not None:
+        kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": enable_thinking}}
 
     completion = client.chat.completions.create(**kwargs)
     msg = completion.choices[0].message
@@ -196,7 +207,10 @@ def run_tests(
         print(f"URL:   {base_url}")
         print(f"{'='*60}")
         client = OpenAI(api_key="EMPTY", base_url=base_url)
-        thinking = (model_name in THINKING_MODELS) and not disable_thinking
+        if model_name in THINKING_CAPABLE_MODELS:
+            thinking: bool | None = not disable_thinking  # True or False (explicit)
+        else:
+            thinking = None  # omit the flag entirely
         model_folder = _slug(model_name) + ("_no_think" if disable_thinking else "")
         results[model_name] = {
             "base_url": base_url,
