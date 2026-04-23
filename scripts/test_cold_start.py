@@ -365,28 +365,21 @@ def run_tests(endpoints: dict[str, str], reps: int, out_dir: Path) -> None:
 
 
 def main() -> None:
-    from datetime import datetime
-
     parser = argparse.ArgumentParser(description="Cold-start system→assistant test")
     parser.add_argument("--reps", type=int, default=10,
                         help="Repetitions per condition (default: 10)")
     parser.add_argument("--endpoints", type=str, default=None,
                         help='JSON dict of model→url overrides')
-    parser.add_argument("--out-dir", type=Path, default=None,
-                        help="Output directory (default: outputs/cold_start/run_<TIMESTAMP>/)")
+    parser.add_argument("--out-dir", type=Path, default=Path("outputs/cold_start"),
+                        help="Output directory (default: outputs/cold_start)")
     args = parser.parse_args()
 
     endpoints = DEFAULT_ENDPOINTS.copy()
     if args.endpoints:
         endpoints.update(json.loads(args.endpoints))
 
-    out_dir = args.out_dir
-    if out_dir is None:
-        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-        out_dir = Path("outputs/cold_start") / f"run_{ts}"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-    run_tests(endpoints, args.reps, out_dir)
+    args.out_dir.mkdir(parents=True, exist_ok=True)
+    run_tests(endpoints, args.reps, args.out_dir)
 
 
 if __name__ == "__main__":
