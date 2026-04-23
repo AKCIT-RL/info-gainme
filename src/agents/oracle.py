@@ -6,12 +6,17 @@ without revealing the target directly.
 
 from __future__ import annotations
 
+from pydantic import ValidationError
+
 from ..data_types import Answer, Question, OracleResponse
 from ..candidates import Candidate
 from ..domain.types import DomainConfig, GEO_DOMAIN
 from ..prompts import get_oracle_system_prompt
+from ..utils import ClaryLogger
 from .llm_adapter import LLMAdapter
 from ..utils.utils import llm_final_content
+
+logger = ClaryLogger.get_logger(__name__)
 
 
 class OracleAgent:
@@ -77,12 +82,34 @@ class OracleAgent:
         },
     }
 
-    def answer_seeker(self) -> Answer:
-        """Generate an answer to the Seeker's question."""
-        response = self._llm_adapter.generate(response_format=self._RESPONSE_FORMAT)
-        response = llm_final_content(response)
+    # Number of times we retry a malformed Oracle reply before giving up.
+    _VALIDATION_RETRIES = 3
 
-        oracle_response = OracleResponse.model_validate_json(response)
+    def answer_seeker(self) -> Answer:
+        """Generate an answer to the Seeker's question.
+
+        Retries up to ``_VALIDATION_RETRIES`` times if the LLM returns a
+        response that doesn't satisfy the OracleResponse schema — defensive
+        in case the backend doesn't honor the json_schema response_format.
+        """
+        last_error: Exception | None = None
+        oracle_response: OracleResponse | None = None
+        for attempt in range(self._VALIDATION_RETRIES):
+            response = self._llm_adapter.generate(response_format=self._RESPONSE_FORMAT)
+            response = llm_final_content(response)
+            try:
+                oracle_response = OracleResponse.model_validate_json(response)
+                break
+            except ValidationError as exc:
+                last_error = exc
+                logger.warning(
+                    "OracleResponse validation failed (attempt %d/%d): %s | raw=%r",
+                    attempt + 1, self._VALIDATION_RETRIES, exc, response[:200],
+                )
+                # Drop the bad reply so the retry sees a clean context.
+                self._llm_adapter.pop_last_if_assistant()
+        if oracle_response is None:
+            raise last_error  # type: ignore[misc]
 
         is_compliant = self._check_compliance(oracle_response.answer)
         self._answers_given += 1
