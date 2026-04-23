@@ -35,10 +35,10 @@ from src.prompts import get_seeker_system_prompt
 # ---------------------------------------------------------------------------
 
 DEFAULT_ENDPOINTS: dict[str, str] = {
-    "Qwen3-8B":                    "http://10.100.0.112:8481/v1",
-    "Qwen3-30B-A3B-Thinking-2507": "http://10.100.0.112:8480/v1",
+    "Qwen3-8B":                    "http://10.100.0.112:9851/v1",
     "Qwen3-4B-Thinking-2507":      "http://10.100.0.113:9830/v1",
-    "Nemotron-Cascade-8B":         "http://10.100.0.112:8479/v1",
+    "Nemotron-Cascade-8B":         "http://10.100.0.113:9831/v1",
+    "Llama-3.2-1B-Instruct": "http://10.100.0.112:9850/v1"
 }
 
 # Models that need enable_thinking=true (mirrors benchmark config extra_body)
@@ -117,48 +117,72 @@ def call_model(
     client: OpenAI,
     model: str,
     messages: list[dict],
-    temperature: float = 0.6,
-    max_tokens: int = 512,
+    max_tokens: int = 24000,
     enable_thinking: bool = False,
-) -> tuple[str, Optional[str]]:
-    """Return (final_content_without_think, raw_with_think_or_None).
+) -> dict:
+    """Call the model and return a dict with all captured fields.
 
     Handles two vLLM layouts:
       - reasoning in model_extra["reasoning"] / ["reasoning_content"]
       - reasoning embedded directly in msg.content as <think>...</think>
     """
-    import re
-
-    kwargs: dict = dict(model=model, messages=messages, temperature=temperature, max_tokens=max_tokens)
+    kwargs: dict = dict(model=model, messages=messages, max_tokens=max_tokens)
     if enable_thinking:
         kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": True}}
+
     completion = client.chat.completions.create(**kwargs)
     msg = completion.choices[0].message
+    choice = completion.choices[0]
     content = msg.content or ""
     extras = msg.model_extra or {}
     reasoning = extras.get("reasoning") or extras.get("reasoning_content")
 
-    if reasoning:
-        # Layout 1: reasoning in separate field
-        raw = f"<think>{reasoning}</think>{content}"
-        final = content.strip()
-    elif "<think>" in content:
-        # Layout 2: reasoning embedded in content
-        raw = content
-        final = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
-    else:
-        raw = None
-        final = content.strip()
+    # Final content: strip reasoning tags if embedded
+    final = content.split("</think>")[-1].strip() if content else ""
 
-    return final, raw
+    usage = getattr(completion, "usage", None)
+    usage_dict = usage.model_dump() if usage is not None else None
+
+    # Full raw response dump (all provider fields) for downstream analysis.
+    try:
+        completion_full = completion.model_dump()
+    except Exception:
+        completion_full = None
+
+    return {
+        "content_raw": content,
+        "content_final": final,
+        "reasoning": reasoning,
+        "finish_reason": getattr(choice, "finish_reason", None),
+        "usage": usage_dict,
+        "enable_thinking": enable_thinking,
+        "request_kwargs": kwargs,
+        "completion_full": completion_full,
+    }
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
-def run_tests(endpoints: dict[str, str], reps: int) -> None:
+def _slug(name: str) -> str:
+    """Filesystem-safe version of a model/condition name."""
+    return name.replace("/", "_").replace(" ", "_")
+
+
+def _dump_json(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False, default=str)
+
+
+def run_tests(endpoints: dict[str, str], reps: int, out_dir: Path) -> None:
+    from collections import Counter
+    from datetime import datetime
+
+    run_started = datetime.now().isoformat(timespec="seconds")
     results: dict[str, dict] = {}
+    manifest_reps: list[dict] = []
 
     for model_name, base_url in endpoints.items():
         print(f"\n{'='*60}")
@@ -166,37 +190,83 @@ def run_tests(endpoints: dict[str, str], reps: int) -> None:
         print(f"URL:   {base_url}")
         print(f"{'='*60}")
         client = OpenAI(api_key="EMPTY", base_url=base_url)
-        results[model_name] = {}
+        thinking = model_name in THINKING_MODELS
+        results[model_name] = {
+            "base_url": base_url,
+            "enable_thinking": thinking,
+            "conditions": {},
+        }
 
         for cond_name, messages in CONDITIONS.items():
             print(f"\n  [{cond_name}]  ({reps} reps)")
-            responses: list[str] = []
+            cond_dir = out_dir / "by_model" / _slug(model_name) / _slug(cond_name)
+            cond_dir.mkdir(parents=True, exist_ok=True)
+            _dump_json(cond_dir / "messages.json", messages)
+
+            reps_data: list[dict] = []
             classifications: list[str] = []
             think_present: list[bool] = []
 
             for i in range(reps):
+                rep_ts = datetime.now().isoformat(timespec="milliseconds")
+                rep_num = i + 1
                 try:
-                    thinking = model_name in THINKING_MODELS
-                    content, raw = call_model(client, model_name, messages, enable_thinking=thinking)
-                    label = classify(content)
-                    think = has_think_tag(raw) if raw else has_think_tag(content)
-                    responses.append(content)
+                    call = call_model(client, model_name, messages, enable_thinking=thinking)
+                    final = call["content_final"]
+                    raw = call["content_raw"]
+                    reasoning = call["reasoning"]
+                    label = classify(final)
+                    think = has_think_tag(reasoning) or has_think_tag(raw) or has_think_tag(final)
+
+                    rep_entry = {
+                        "rep": rep_num,
+                        "timestamp": rep_ts,
+                        "classification": label,
+                        "think_present": think,
+                        "content_final": final,
+                        "content_raw": raw,
+                        "reasoning": reasoning,
+                        "finish_reason": call["finish_reason"],
+                        "usage": call["usage"],
+                        "request_kwargs": call["request_kwargs"],
+                        "completion_full": call["completion_full"],
+                    }
+                    reps_data.append(rep_entry)
                     classifications.append(label)
                     think_present.append(think)
 
-                    short = textwrap.shorten(content, width=80, placeholder="…")
+                    short = textwrap.shorten(final, width=80, placeholder="…")
                     think_tag = " [<think>✓]" if think else ""
-                    print(f"    rep {i+1:2d}: [{label}]{think_tag}  {short!r}")
+                    print(f"    rep {rep_num:2d}: [{label}]{think_tag}  {short!r}")
                 except Exception as exc:
-                    print(f"    rep {i+1:2d}: ERROR — {exc}")
-                    responses.append("")
+                    print(f"    rep {rep_num:2d}: ERROR — {exc}")
+                    rep_entry = {
+                        "rep": rep_num,
+                        "timestamp": rep_ts,
+                        "classification": "ERROR",
+                        "think_present": False,
+                        "error": repr(exc),
+                        "content_final": "",
+                        "content_raw": "",
+                        "reasoning": None,
+                    }
+                    reps_data.append(rep_entry)
                     classifications.append("ERROR")
                     think_present.append(False)
 
-            # Aggregate
-            from collections import Counter
+                rep_path = cond_dir / f"rep_{rep_num:02d}.json"
+                _dump_json(rep_path, rep_entry)
+                manifest_reps.append({
+                    "model": model_name,
+                    "condition": cond_name,
+                    "rep": rep_num,
+                    "classification": rep_entry["classification"],
+                    "think_present": rep_entry["think_present"],
+                    "path": str(rep_path.relative_to(out_dir)),
+                })
+
             counts = Counter(classifications)
-            unique_responses = len(set(r for r in responses if r))
+            unique_responses = len(set(r["content_final"] for r in reps_data if r.get("content_final")))
             think_rate = sum(think_present) / len(think_present) if think_present else 0.0
 
             print(f"\n  Summary:")
@@ -204,12 +274,33 @@ def run_tests(endpoints: dict[str, str], reps: int) -> None:
             print(f"    unique responses: {unique_responses}/{reps}  (1 = pure deterministic fallback)")
             print(f"    <think> rate    : {think_rate:.0%}")
 
-            results[model_name][cond_name] = {
+            results[model_name]["conditions"][cond_name] = {
+                "messages_sent": messages,
                 "classifications": dict(counts),
                 "unique_responses": unique_responses,
                 "think_rate": round(think_rate, 2),
-                "responses": responses,
+                "reps": reps_data,
             }
+
+            # Also dump per-condition plain-text log for easy eyeballing
+            txt_path = cond_dir / "log.txt"
+            with open(txt_path, "w") as f:
+                f.write(f"Model: {model_name}\nURL: {base_url}\nCondition: {cond_name}\n")
+                f.write(f"Enable thinking: {thinking}\n")
+                f.write(f"{'='*60}\nMESSAGES SENT\n{'='*60}\n")
+                for m in messages:
+                    f.write(f"\n--- {m['role']} ---\n{m['content']}\n")
+                f.write(f"\n{'='*60}\nREPS\n{'='*60}\n")
+                for r in reps_data:
+                    f.write(f"\n--- rep {r['rep']} [{r['classification']}] "
+                            f"think={r.get('think_present')} finish={r.get('finish_reason')} ---\n")
+                    if r.get("error"):
+                        f.write(f"ERROR: {r['error']}\n")
+                        continue
+                    if r.get("reasoning"):
+                        f.write(f"[reasoning]\n{r['reasoning']}\n")
+                    f.write(f"[content_raw]\n{r.get('content_raw','')}\n")
+                    f.write(f"[content_final]\n{r.get('content_final','')}\n")
 
     # ---------------------------------------------------------------------------
     # Cross-model summary table
@@ -221,8 +312,9 @@ def run_tests(endpoints: dict[str, str], reps: int) -> None:
     print(header)
     print("-" * len(header))
 
-    for model_name, conds in results.items():
-        for cond_name, data in conds.items():
+    summary_rows: list[dict] = []
+    for model_name, model_data in results.items():
+        for cond_name, data in model_data["conditions"].items():
             c = data["classifications"]
             valid    = c.get("VALID", 0) + c.get("LONG_QUESTION", 0)
             fallback = c.get("FALLBACK", 0)
@@ -231,28 +323,70 @@ def run_tests(endpoints: dict[str, str], reps: int) -> None:
             think    = f"{data['think_rate']:.0%}"
             unique   = data["unique_responses"]
             print(f"{model_name:<35} {cond_name:<22} {valid:>6} {fallback:>9} {refusal:>8} {other:>6} {unique:>7} {think:>6}")
+            summary_rows.append({
+                "model": model_name, "condition": cond_name,
+                "valid": valid, "fallback": fallback, "refusal": refusal, "other": other,
+                "unique": unique, "think_rate": data["think_rate"],
+            })
 
-    # Save JSON
-    out_path = Path("outputs/cold_start_test_results.json")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(out_path, "w") as f:
-        json.dump(results, f, indent=2, ensure_ascii=False)
-    print(f"\nResults saved to {out_path}")
+    # Save full JSON (everything)
+    full_path = out_dir / "cold_start_test_results.json"
+    _dump_json(full_path, {
+        "run_started": run_started,
+        "reps_per_condition": reps,
+        "system_prompt": SYSTEM_PROMPT,
+        "endpoints": endpoints,
+        "results": results,
+    })
+
+    # Compact summary CSV for quick grepping/plotting
+    import csv
+    csv_path = out_dir / "cold_start_summary.csv"
+    with open(csv_path, "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(summary_rows[0].keys()) if summary_rows else [])
+        w.writeheader()
+        w.writerows(summary_rows)
+
+    # Index manifest: one row per rep, with relative path to its JSON file.
+    _dump_json(out_dir / "manifest.json", {
+        "run_started": run_started,
+        "reps_per_condition": reps,
+        "conditions": list(CONDITIONS),
+        "endpoints": endpoints,
+        "reps": manifest_reps,
+    })
+
+    print(f"\nOut dir       : {out_dir}")
+    print(f"Full results  : {full_path}")
+    print(f"Summary CSV   : {csv_path}")
+    print(f"Manifest      : {out_dir / 'manifest.json'}")
+    print(f"Per-rep JSON  : {out_dir / 'by_model'}/<model>/<condition>/rep_XX.json")
+    print(f"Per-cond logs : {out_dir / 'by_model'}/<model>/<condition>/log.txt")
 
 
 def main() -> None:
+    from datetime import datetime
+
     parser = argparse.ArgumentParser(description="Cold-start system→assistant test")
-    parser.add_argument("--reps", type=int, default=5,
-                        help="Repetitions per condition (default: 5)")
+    parser.add_argument("--reps", type=int, default=10,
+                        help="Repetitions per condition (default: 10)")
     parser.add_argument("--endpoints", type=str, default=None,
                         help='JSON dict of model→url overrides')
+    parser.add_argument("--out-dir", type=Path, default=None,
+                        help="Output directory (default: outputs/cold_start/run_<TIMESTAMP>/)")
     args = parser.parse_args()
 
     endpoints = DEFAULT_ENDPOINTS.copy()
     if args.endpoints:
         endpoints.update(json.loads(args.endpoints))
 
-    run_tests(endpoints, args.reps)
+    out_dir = args.out_dir
+    if out_dir is None:
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        out_dir = Path("outputs/cold_start") / f"run_{ts}"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    run_tests(endpoints, args.reps, out_dir)
 
 
 if __name__ == "__main__":
