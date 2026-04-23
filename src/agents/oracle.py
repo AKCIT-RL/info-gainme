@@ -6,12 +6,17 @@ without revealing the target directly.
 
 from __future__ import annotations
 
+from pydantic import ValidationError
+
 from ..data_types import Answer, Question, OracleResponse
 from ..candidates import Candidate
 from ..domain.types import DomainConfig, GEO_DOMAIN
 from ..prompts import get_oracle_system_prompt
+from ..utils import ClaryLogger
 from .llm_adapter import LLMAdapter
 from ..utils.utils import llm_final_content
+
+logger = ClaryLogger.get_logger(__name__)
 
 
 class OracleAgent:
@@ -64,12 +69,36 @@ class OracleAgent:
         """Add Seeker's question to conversation history."""
         self._llm_adapter.append_history("user", f"[Seeker] - {question.text}")
 
+    _RESPONSE_FORMAT = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "OracleResponse",
+            "schema": OracleResponse.model_json_schema(),
+            "strict": True,
+        },
+    }
+
+    _VALIDATION_RETRIES = 3
+
     def answer_seeker(self) -> Answer:
         """Generate an answer to the Seeker's question."""
-        response = self._llm_adapter.generate()
-        response = llm_final_content(response)
-
-        oracle_response = OracleResponse.model_validate_json(response)
+        last_error: ValidationError | None = None
+        for attempt in range(self._VALIDATION_RETRIES):
+            response = self._llm_adapter.generate(response_format=self._RESPONSE_FORMAT)
+            response = llm_final_content(response)
+            try:
+                oracle_response = OracleResponse.model_validate_json(response)
+                break
+            except ValidationError as exc:
+                last_error = exc
+                logger.warning(
+                    "OracleResponse validation failed (attempt %d/%d): %s | raw=%r",
+                    attempt + 1, self._VALIDATION_RETRIES, exc, response[:200],
+                )
+                self._llm_adapter.pop_last_if_assistant()
+        else:
+            assert last_error is not None
+            raise last_error
 
         is_compliant = self._check_compliance(oracle_response.answer)
         self._answers_given += 1
