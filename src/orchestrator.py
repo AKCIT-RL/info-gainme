@@ -24,6 +24,7 @@ from .agents.oracle import OracleAgent
 from .agents.pruner import PrunerAgent
 from .agents.llm_adapter import LLMAdapter
 from .agents.llm_config import LLMConfig
+from .utils.git_info import get_git_info
 
 
 class Orchestrator:
@@ -370,6 +371,7 @@ class Orchestrator:
         metadata = {
             "game_id": None,
             "timestamp": datetime.now().isoformat(),
+            "git": get_git_info(),
             "target": {
                 "id": self._oracle._target.id,
                 "label": self._oracle._target.label,
