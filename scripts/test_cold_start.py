@@ -186,6 +186,7 @@ def run_tests(
     from datetime import datetime
 
     run_started = datetime.now().isoformat(timespec="seconds")
+    suffix = "_no_think" if disable_thinking else ""
     results: dict[str, dict] = {}
     manifest_reps: list[dict] = []
 
@@ -196,6 +197,7 @@ def run_tests(
         print(f"{'='*60}")
         client = OpenAI(api_key="EMPTY", base_url=base_url)
         thinking = (model_name in THINKING_MODELS) and not disable_thinking
+        model_folder = _slug(model_name) + ("_no_think" if disable_thinking else "")
         results[model_name] = {
             "base_url": base_url,
             "enable_thinking": thinking,
@@ -204,7 +206,7 @@ def run_tests(
 
         for cond_name, messages in CONDITIONS.items():
             print(f"\n  [{cond_name}]  ({reps} reps)")
-            cond_dir = out_dir / "by_model" / _slug(model_name) / _slug(cond_name)
+            cond_dir = out_dir / "by_model" / model_folder / _slug(cond_name)
             cond_dir.mkdir(parents=True, exist_ok=True)
             _dump_json(cond_dir / "messages.json", messages)
 
@@ -335,7 +337,7 @@ def run_tests(
             })
 
     # Save full JSON (everything)
-    full_path = out_dir / "cold_start_test_results.json"
+    full_path = out_dir / f"cold_start_test_results{suffix}.json"
     _dump_json(full_path, {
         "run_started": run_started,
         "reps_per_condition": reps,
@@ -346,27 +348,30 @@ def run_tests(
 
     # Compact summary CSV for quick grepping/plotting
     import csv
-    csv_path = out_dir / "cold_start_summary.csv"
+    csv_path = out_dir / f"cold_start_summary{suffix}.csv"
     with open(csv_path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=list(summary_rows[0].keys()) if summary_rows else [])
         w.writeheader()
         w.writerows(summary_rows)
 
     # Index manifest: one row per rep, with relative path to its JSON file.
-    _dump_json(out_dir / "manifest.json", {
+    manifest_path = out_dir / f"manifest{suffix}.json"
+    _dump_json(manifest_path, {
         "run_started": run_started,
         "reps_per_condition": reps,
         "conditions": list(CONDITIONS),
         "endpoints": endpoints,
+        "disable_thinking": disable_thinking,
         "reps": manifest_reps,
     })
 
     print(f"\nOut dir       : {out_dir}")
     print(f"Full results  : {full_path}")
     print(f"Summary CSV   : {csv_path}")
-    print(f"Manifest      : {out_dir / 'manifest.json'}")
-    print(f"Per-rep JSON  : {out_dir / 'by_model'}/<model>/<condition>/rep_XX.json")
-    print(f"Per-cond logs : {out_dir / 'by_model'}/<model>/<condition>/log.txt")
+    print(f"Manifest      : {manifest_path}")
+    model_suffix = "[_no_think]" if disable_thinking else ""
+    print(f"Per-rep JSON  : {out_dir / 'by_model'}/<model>{model_suffix}/<condition>/rep_XX.json")
+    print(f"Per-cond logs : {out_dir / 'by_model'}/<model>{model_suffix}/<condition>/log.txt")
 
 
 def main() -> None:
