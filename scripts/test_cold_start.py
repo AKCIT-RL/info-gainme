@@ -38,18 +38,18 @@ DEFAULT_ENDPOINTS: dict[str, str] = {
     "Qwen3-8B":                    "http://10.100.0.112:9851/v1",
     "Qwen3-4B-Thinking-2507":      "http://10.100.0.113:9830/v1",
     "Nemotron-Cascade-8B":         "http://10.100.0.113:9831/v1",
-    "Llama-3.2-1B-Instruct": "http://10.100.0.112:9850/v1"
+    "Llama-3.2-1B-Instruct": "http://10.100.0.112:9850/v1",
+    "Llama-3.2-3B-Instruct": "http://10.100.0.112:9860/v1",
+    "Qwen3-0.6B": "http://10.100.0.121:10420/v1"
 }
 
-# Models that need enable_thinking=true (mirrors benchmark config extra_body)
+
+
+# Models that default to thinking ON — get enable_thinking=True unless --no-thinking is passed.
 THINKING_MODELS: set[str] = {
     "Qwen3-4B-Thinking-2507",
-    "Qwen3-8B",  # also supports thinking via same flag
-}
-
-# Models that support the enable_thinking flag (True or False).
-# For these, --no-thinking explicitly sends enable_thinking=False instead of omitting the field.
-THINKING_CAPABLE_MODELS: set[str] = THINKING_MODELS | {
+    "Qwen3-8B",
+    "Qwen3-0.6B",
     "Nemotron-Cascade-8B",
 }
 
@@ -212,10 +212,12 @@ def run_tests(
         print(f"URL:   {base_url}")
         print(f"{'='*60}")
         client = OpenAI(api_key="EMPTY", base_url=base_url)
-        if model_name in THINKING_CAPABLE_MODELS:
-            thinking: bool | None = not disable_thinking  # True or False (explicit)
+        if disable_thinking:
+            thinking: bool | None = False  # explicit disable for all models
+        elif model_name in THINKING_MODELS:
+            thinking = True  # explicit enable for known thinking models
         else:
-            thinking = None  # omit the flag entirely
+            thinking = None  # omit flag — model's default behavior
         model_folder = _slug(model_name) + ("_no_think" if disable_thinking else "") + temp_tag
         results[model_name] = {
             "base_url": base_url,
