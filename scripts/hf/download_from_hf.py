@@ -18,13 +18,13 @@ import sys
 import time
 from pathlib import Path
 
+from dotenv import load_dotenv
+from huggingface_hub import hf_hub_download, snapshot_download
+from huggingface_hub.utils import EntryNotFoundError
+
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+load_dotenv()
 
 
 def main() -> int:
@@ -80,13 +80,6 @@ def main() -> int:
         print(f"[Dry run] Destination: {outputs_dir}")
         print(f"[Dry run] workers={args.num_workers}")
         return 0
-
-    try:
-        from huggingface_hub import hf_hub_download, snapshot_download
-        from huggingface_hub.utils import EntryNotFoundError
-    except ImportError:
-        print("Error: huggingface_hub not installed. Run: pip install huggingface_hub")
-        return 1
 
     outputs_dir.mkdir(parents=True, exist_ok=True)
 
