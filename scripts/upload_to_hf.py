@@ -16,6 +16,7 @@ import argparse
 import os
 import sys
 from pathlib import Path
+from huggingface_hub import HfApi
 
 # Allow running from repo root or scripts/
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -116,28 +117,7 @@ def main() -> int:
         print(f"[Dry run] private={private}, workers={args.num_workers}")
         return 0
 
-    # --- import huggingface_hub ---
-    try:
-        from huggingface_hub import HfApi
-    except ImportError:
-        print("Error: huggingface_hub not installed. Run: pip install huggingface_hub")
-        return 1
-
     api = HfApi(token=token)
-
-    # --- create repo (idempotent) ---
-    print(f"\nEnsuring dataset repo exists: {repo_id} (private={private}) ...")
-    try:
-        api.create_repo(
-            repo_id=repo_id,
-            repo_type="dataset",
-            private=private,
-            exist_ok=True,
-        )
-        print(f"Repo ready: https://huggingface.co/datasets/{repo_id}")
-    except Exception as exc:
-        print(f"Error creating/accessing repo: {exc}")
-        return 1
 
     # --- upload ---
     print(f"\nUploading {outputs_dir}/ → {repo_id} ...")
