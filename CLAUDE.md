@@ -37,9 +37,9 @@ There is no automated test suite. Validate changes manually using the demo scrip
 
 **Run a single game** to test locally:
 ```bash
-python3 demo_single_game.py                    # generic test
-python3 demo_objects_game.py                   # objects domain
-python3 demo_diseases_game.py                  # diseases domain
+python3 demos/demo_single_game.py               # generic test
+python3 demos/demo_objects_game.py              # objects domain
+python3 demos/demo_diseases_game.py             # diseases domain
 ```
 
 These demos use a small subset of candidates and don't require large-scale infrastructure. Useful for testing agent logic or configs.
@@ -83,8 +83,8 @@ This script:
 Defaults in the script: `Qwen3-4B-Thinking-2507` (seeker) + `Qwen3-8B` (oracle/pruner) in `dual` mode. **Always override via `--export=ALL,...`** — the old "positional arg" style is not supported.
 
 Key overridable vars (all via `--export=ALL,KEY=VAL,...`):
-- `MODEL1`, `MODEL1_NAME` — seeker HF id + served-model name
-- `MODEL2`, `MODEL2_NAME` — oracle/pruner HF id + served-model name
+- `MODEL1`, `MODEL1_NAME` — seeker HF id (for vLLM download) + served-model-name. **⚠️ `MODEL1_NAME` MUST match the `seeker.model` string in the target YAML verbatim** (usually short form, no `org/` prefix). The script generates `.servers_override_<JOBID>.yaml` keyed by `MODEL1_NAME`; if the YAML asks for `"Llama-3.2-1B-Instruct"` and you pass `MODEL1_NAME=meta-llama/Llama-3.2-1B-Instruct`, `config_loader.py` won't find the key, falls back to `OPENAI_API_KEY` → hits `api.openai.com` → 404 loop for hours (non-fatal, silently retries). Same rule for `MODEL2_NAME` ↔ `oracle.model`/`pruner.model`.
+- `MODEL2`, `MODEL2_NAME` — oracle/pruner HF id + served-model-name (same caveat)
 - `MODE=single|dual` (default `single`; use `dual` when seeker ≠ oracle model)
 - `CONFIGS_TARGET` — folder or single `.yaml`
 - `MODEL1_PORT`, `MODEL2_PORT` — override auto-assigned ports (base formula `8000 + (JOB_ID % 500) * 10`; script also probes with `ss -tln` and advances if busy)
@@ -124,6 +124,30 @@ python3 benchmark_runner.py --config configs/full/8b/geo_160_8b_fo_cot.yaml
 
 **Resumability:** Benchmarks detect completed `(target_id, run_index)` pairs from the existing `runs.csv` and skip them automatically. Useful for recovering from crashes or extending a partial run. The `BenchmarkRunner` reads `runs.csv`, filters targets that haven't been fully run, and continues where it left off. To restart from scratch, remove or rename the output directory.
 
+## Job sanity check — is it actually producing?
+
+A SLURM job in `R` state ≠ job producing runs. Always confirm with this checklist:
+
+1. **vLLMs alive**: `curl -s http://localhost:<port>/v1/models` returns JSON with the expected `served-model-name` (both seeker and oracle/pruner). `ps | grep vllm.*api_server` shows both processes.
+2. **Override file exists**: `.servers_override_<JOBID>.yaml` in the project root, keys matching `MODEL*_NAME`.
+3. **`runs.csv` growing**: `wc -l outputs/.../<exp>/runs.csv` + `stat` mtime ≤ few minutes old. A CSV with **1 line (header only)** after hours of runtime = job is broken, not running slow.
+4. **No OpenAI fallback in logs**: `grep api.openai.com logs/info-gainme-full-<JOBID>.out` should return nothing. Any hit means `MODEL_NAME` ↔ `seeker.model`/`oracle.model`/`pruner.model` mismatch → config_loader fell back to `OPENAI_API_KEY`.
+5. **No `"died before readiness"`**: script's `wait_vllm_ready` aborts if vLLM subprocess exits early. If you see this in `.out`, check the `.log` of that vLLM — usually OOM, bad path, or CUDA arch mismatch (B200 needs `enforce-eager=false`).
+
+**Common failure patterns:**
+- `runs.csv` only header, mtime progressing every ~7h → `MODEL_NAME` mismatch; each config exhausts 50 retries × ~60s backoff then moves on. Cancel and resubmit with `MODEL_NAME` matching YAML exactly.
+- `runs.csv` mtime frozen for hours while job still `R` → vLLM died silently but the bash script keeps polling. Check the vLLM `.log`, likely OOM or a downstream dependency (the other vLLM) crashed.
+- Oracle/pruner port collision between consecutive JOB_IDs → was the old `%1000` bug, fixed to `%500 * 10 + ss probe`. If you see `"model X does not exist"` in the seeker's log pointing to the OTHER job's port, the fix didn't take effect — verify `dgx/run_full_benchmark.sh` is synced.
+- Pruner returning invalid JSON (Nemotron/Olmo sometimes emit control chars) → `Pruner JSON parse error` in logs; benchmark skips pruning that turn (`active=N, pruned=0`). Run still completes but produces degenerate data (30 turns, IG=0). Consider changing oracle/pruner model.
+
+**Auditing what's left across nodes:**
+```bash
+# DONE / INCOMPLETE / MISSING per config, grouped by folder:
+python3 scripts/audit_experiments.py                                                          # current node
+ssh 10.100.0.113 'cd /raid/user_danielpedrozo/projects/info-gainme_dev && python3 scripts/audit_experiments.py'  # other node
+```
+The script reads each YAML under `configs/full/**`, computes `expected = num_targets × runs_per_target`, and counts unique `(target_id, run_index)` pairs in the corresponding `outputs/models/s_<triple>/<exp>/runs.csv`. Take the max across nodes when a config is split.
+
 ## Analysis pipeline
 
 Run in order after benchmarks finish:
@@ -143,8 +167,6 @@ MODEL=Qwen3-8B BASE_URL=http://localhost:8020/v1 bash dgx/run_synthesize_traces.
 For each CoT game, extracts `<think>` blocks from `seeker.json` and synthesizes structured reasoning (options considered, choice rationale) via LLM. Idempotent — skips if `seeker_traces.json` exists. Output: `seeker_traces.json` per conversation.
 
 Parallelism is two-level: `WORKERS` (default 8) = conversations in parallel per experiment; `TURN_WORKERS` (default 4) = LLM calls parallelized within a conversation. Max concurrent LLM calls ≈ `workers × turn_workers`. Override via `--turn-workers` flag or `TURN_WORKERS` env var.
-
-`dgx/run_all_synthesize_traces.sh` is a shortcut that synthesizes all traces at once without `sg sd22` (personal environment only).
 
 **Step 3: Analyze reasoning traces**
 ```bash
@@ -219,17 +241,33 @@ scripts/
   analyze_results.py              ← runs.csv → summary.json + variance.json (wraps analysis/writer)
   generate_unified_csv.py         ← merges all experiments into outputs/unified_experiments.csv
   generate_model_summary_csv.py   ← per-model aggregation CSV
-  analyze_reasoning_traces.py     ← reads seeker_traces.json → reasoning_traces_analysis.json
-  multi_synthesize_reasoning_traces.py  ← batch synthesize traces across experiments
-  evaluate_all_seeker_choices.py  ← batch question-choice evaluation from runs.csv
-  evaluate_seeker_choices.py      ← single-conversation question-choice evaluation
   aggregate_metrics_by_city.py    ← city-level metric aggregation
   aggregate_ig_over_time.py       ← IG-over-turns aggregation
-  generate_question_evaluations_csv.py  ← flatten question_evaluation.json → CSV
+  aggregate_cold_start.py         ← aggregate cold-start results
   plot_aggregated_ig.py           ← plot IG-over-turns curves
+  compute_optimal_baseline.py     ← optimal-play upper-bound baseline
+  extract_top_cities_by_population.py  ← data prep helper
   prepare_diseases_csv.py         ← prepare diseases CSV for dataset creation
+  remove_duplicates_runs.py       ← de-dup runs.csv by (target_id, run_index)
+  validate_oracle_answers.py      ← re-check Oracle answers against the ground truth
+  delete_affected_runs.py         ← remove runs affected by oracle bugs
+  delete_evaluations_with_connection_errors.py
+  recalculate_question_evaluation_se.py
   download_from_hf.py / upload_to_hf.py  ← HuggingFace dataset sync (see also dgx/ shell wrappers)
+  reasoning_traces/               ← CoT trace synthesis + question-choice evaluation
+    synthesize_traces.py              ← batch synthesize traces (--all / --runs / --seeker-file)
+    analyze_traces.py                 ← seeker_traces.json → reasoning_traces_analysis.json
+    evaluate_all_seeker_choices.py    ← batch question-choice evaluation from runs.csv
+    evaluate_seeker_choices.py        ← single-conversation question-choice evaluation
+    generate_question_evaluations_csv.py  ← flatten question_evaluation.json → CSV
+    summary_table.py                  ← decision-quality summary table (Table 2)
+  question_classification/        ← post-hoc classification of seeker questions
+    classify_questions.py
+    analyze_question_classifications.py
+    flatten_question_classifications.py
 ```
+
+Note: the `dgx/` shell wrappers (e.g. `run_synthesize_traces.sh`, `run_analyze_traces.sh`) still work — they were updated to point at the new `scripts/reasoning_traces/` locations.
 
 **Key flow:** `benchmark_runner.py` / `human_benchmark_runner.py` → `BenchmarkRunner.run()` → per game: `Orchestrator.from_target()` → loop: Seeker asks → Oracle answers → Pruner prunes → entropy computed → `TurnState` appended → results written to `runs.csv`.
 
@@ -239,14 +277,14 @@ scripts/
 
 **Geo vs flat domains:** The geo domain uses `KnowledgeGraph` (hierarchical tree: region→subregion→country→state→city). When all cities under a parent are pruned, the parent is also pruned recursively (`apply_pruning` walks up via `has_child`/`contains` edges). Objects and diseases use the flat `CandidatePool` instead.
 
-**Question-choice evaluation** (post-hoc, CoT only): `scripts/evaluate_all_seeker_choices.py` reads a `runs.csv`, finds conversations with `seeker_traces.json`, then for each turn re-runs Oracle+Pruner on every question the Seeker considered to compute counterfactual info gains. Results saved as `question_evaluation.json` per conversation and `question_evaluations_summary.json` per experiment. This pipeline is read-only — it never modifies turns or conversation files.
+**Question-choice evaluation** (post-hoc, CoT only): `scripts/reasoning_traces/evaluate_all_seeker_choices.py` reads a `runs.csv`, finds conversations with `seeker_traces.json`, then for each turn re-runs Oracle+Pruner on every question the Seeker considered to compute counterfactual info gains. Results saved as `question_evaluation.json` per conversation and `question_evaluations_summary.json` per experiment. This pipeline is read-only — it never modifies turns or conversation files.
 
 ## Utility scripts
 
 **Post-processing & data maintenance:**
-- `synthesize_from_runs_csv.py` — batch synthesize reasoning traces from runs.csv with custom settings (alternative to `run_synthesize_traces.sh`)
-- `remove_duplicates_runs.py` — remove duplicate rows from runs.csv by `(target_id, run_index)` pair
-- `scripts/evaluate_seeker_choices.py` — evaluate a single conversation's question choices (debug-friendly version of batch evaluator)
+- `scripts/audit_experiments.py` — walks `configs/full/**/*.yaml`, reports DONE / INCOMPLETE / MISSING per config by counting unique `(target_id, run_index)` pairs in each `runs.csv`. Use to find gaps before resubmitting.
+- `scripts/remove_duplicates_runs.py` — remove duplicate rows from runs.csv by `(target_id, run_index)` pair
+- `scripts/reasoning_traces/evaluate_seeker_choices.py` — evaluate a single conversation's question choices (debug-friendly version of batch evaluator)
 - `scripts/delete_evaluations_with_connection_errors.py` — clean up failed evaluation runs
 - `scripts/recalculate_question_evaluation_se.py` — recalculate standard error for existing evaluations
 

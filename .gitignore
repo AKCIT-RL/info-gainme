@@ -57,3 +57,5 @@ outputs/
 .deps/
 
 **/.servers_override**.yaml
+
+.claude/worktrees/

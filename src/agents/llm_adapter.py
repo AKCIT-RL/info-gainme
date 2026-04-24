@@ -91,6 +91,17 @@ class LLMAdapter:
         """Clear the internal chat history."""
         self._history.clear()
 
+    def pop_last_if_assistant(self) -> bool:
+        """Drop the last history entry if it is an assistant message."""
+        if not self._save_history or not self._history:
+            return False
+        if self._history[-1].get("role") != "assistant":
+            return False
+        self._history.pop()
+        if self._save_reasoning and self._reasoning_history and self._reasoning_history[-1].get("role") == "assistant":
+            self._reasoning_history.pop()
+        return True
+
 
     # --- Accessors ---
     @property
@@ -203,9 +214,11 @@ class LLMAdapter:
             request_kwargs["user"] = self._config.user
         if self._config.max_tokens is not None or max_tokens is not None:
             request_kwargs["max_tokens"] = self._config.max_tokens if max_tokens is None else max_tokens
-        if self._config.response_format is not None or response_format is not None:
-            pass
-            # request_kwargs["response_format"] = self._config.response_format if response_format is None else response_format
+        if response_format is not None or self._config.response_format is not None:
+            request_kwargs["response_format"] = (
+                response_format if response_format is not None
+                else self._config.response_format
+            )
         if self._config.extra:
             request_kwargs.update(self._config.extra)
         # if extra:

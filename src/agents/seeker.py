@@ -64,6 +64,14 @@ class SeekerAgent:
             ),
         )
 
+        # Thinking-model chat templates only open <think> after a user turn;
+        # FO supplies one via add_initial_candidates, PO needs this kickoff.
+        if self._observability_mode == ObservabilityMode.PARTIALLY_OBSERVABLE:
+            self._llm_adapter.append_history(
+                "user",
+                "Start the game. Ask your first question.",
+            )
+
     @property
     def model(self) -> str:
         return self._model

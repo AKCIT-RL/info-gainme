@@ -8,7 +8,7 @@ Usage:
     python scripts/generate_unified_csv.py [base_outputs_dir] [output_csv_path]
 
 Colunas geradas:
-    Experimento, Seeker Model, Oracle Model, Pruner Model, Observabilidade, Total Runs, Win Rate,
+    Experimento, Dataset, Seeker Model, Oracle Model, Pruner Model, Observabilidade, Total Runs, Win Rate,
     Mean Turns, Mean Info Gain/Turn, Mean Info Gain, Mean Initial Entropy,
     Mean Seeker Tokens, Mean Seeker Reasoning Tokens, Mean Seeker Final Tokens,
     SE Win Rate, SE Mean Turns, SE Mean Info Gain/Turn, SE Mean Info Gain, SE Mean Initial Entropy,
@@ -40,8 +40,20 @@ def _compose_experiment_id(row: dict) -> str:
     return f"s_{s}__o_{o}__p_{p}__{obs}__{exp}"
 
 
+def _infer_dataset(experiment_name: str | None) -> str | None:
+    """Deriva o dataset (geo/objects/diseases) pelo prefixo do experiment_name."""
+    if not experiment_name:
+        return None
+    exp = experiment_name.lower()
+    for ds in ("geo", "objects", "diseases"):
+        if exp.startswith(ds + "_") or f"_{ds}_" in exp:
+            return ds
+    return None
+
+
 HEADERS = [
     "Experimento",
+    "Dataset",
     "Seeker Model",
     "Oracle Model",
     "Pruner Model",
@@ -75,6 +87,7 @@ def _extract_from_summary(summary_path: Path) -> dict | None:
         models = data.get("models", {}) or {}
         return {
             "Experimento": data.get("experiment_name"),
+            "Dataset": _infer_dataset(data.get("experiment_name")),
             "Seeker Model": models.get("seeker"),
             "Oracle Model": models.get("oracle"),
             "Pruner Model": models.get("pruner"),
@@ -107,6 +120,7 @@ def _extract_from_runs_csv(runs_csv: Path) -> dict | None:
         results = load_experiment_results(runs_csv)
         return {
             "Experimento": results.experiment_name,
+            "Dataset": _infer_dataset(results.experiment_name),
             "Seeker Model": results.seeker_model,
             "Oracle Model": results.oracle_model,
             "Pruner Model": results.pruner_model,
