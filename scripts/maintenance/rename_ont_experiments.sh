@@ -11,14 +11,14 @@
 #   in those 39 cases (check via reasoning_history of any conversation).
 #
 # This script renames each affected experiment directory by appending
-# "_no_think" so:
+# "_ont" so:
 #   - the existing data is preserved next to its peers (audit trail);
 #   - re-running the benchmark with the parser-fix in dgx/run_full_benchmark.sh
 #     creates a fresh directory under the original (canonical) name.
 #
 # Usage:
-#   bash scripts/maintenance/rename_no_think_experiments.sh           # dry-run
-#   bash scripts/maintenance/rename_no_think_experiments.sh apply     # rename
+#   bash scripts/maintenance/rename_ont_experiments.sh           # dry-run
+#   bash scripts/maintenance/rename_ont_experiments.sh apply     # rename
 #
 # After applying, regenerate any aggregate CSVs that index by experiment name:
 #   python3 scripts/analysis/generate_unified_csv.py
@@ -29,7 +29,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 OUTPUTS_DIR="${OUTPUTS_DIR:-${PROJECT_ROOT}/outputs/models}"
-SUFFIX="${SUFFIX:-_no_think}"
+SUFFIX="${SUFFIX:-_ont}"
 APPLY="${1:-dry}"
 
 PATHS=(
@@ -90,9 +90,66 @@ echo "Mode:        ${APPLY}"
 echo "Total:       ${#PATHS[@]} experiments"
 echo "---"
 
+# Rewrite the experiment_name field embedded in runs.csv / metadata.json /
+# summary.json so downstream aggregators (e.g. generate_unified_csv.py) reflect
+# the rename. Without this, the CSV "Experimento" column would still show the
+# old name even though the directory has the new suffix.
+rewrite_experiment_name() {
+    local exp_dir=$1 old_name=$2 new_name=$3
+
+    # runs.csv — replace exact-match cell value in the experiment_name column.
+    local runs="${exp_dir}/runs.csv"
+    if [ -f "${runs}" ]; then
+        python3 - "$runs" "$old_name" "$new_name" <<'PYEOF'
+import csv, sys
+from pathlib import Path
+runs, old, new = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+rows = list(csv.DictReader(runs.open()))
+if not rows or "experiment_name" not in rows[0]:
+    sys.exit(0)
+changed = 0
+for r in rows:
+    if r["experiment_name"] == old:
+        r["experiment_name"] = new
+        changed += 1
+with runs.open("w", newline="") as f:
+    w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+    w.writeheader(); w.writerows(rows)
+print(f"  runs.csv: {changed} rows updated")
+PYEOF
+    fi
+
+    # metadata.json (per conversation) and summary.json (per experiment).
+    python3 - "$exp_dir" "$old_name" "$new_name" <<'PYEOF'
+import json, sys
+from pathlib import Path
+exp_dir, old, new = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+n = 0
+for path in list(exp_dir.glob("conversations/*/metadata.json")) + [exp_dir / "summary.json"]:
+    if not path.exists():
+        continue
+    try:
+        d = json.loads(path.read_text())
+    except Exception:
+        continue
+    cfg = d.get("config", {})
+    changed = False
+    if cfg.get("experiment_name") == old:
+        cfg["experiment_name"] = new; changed = True
+    if d.get("experiment_name") == old:
+        d["experiment_name"] = new; changed = True
+    if changed:
+        path.write_text(json.dumps(d, ensure_ascii=False, indent=2))
+        n += 1
+print(f"  metadata/summary: {n} files updated")
+PYEOF
+}
+
 ok=0; missing=0; collision=0
 for path in "${PATHS[@]}"; do
     new="${path}${SUFFIX}"
+    old_name="$(basename "${path}")"
+    new_name="${old_name}${SUFFIX}"
     if [ ! -d "${path}" ]; then
         echo "MISSING:    ${path}"
         missing=$((missing + 1))
@@ -106,8 +163,11 @@ for path in "${PATHS[@]}"; do
     if [ "${APPLY}" = "apply" ]; then
         mv "${path}" "${new}"
         echo "RENAMED:    ${path} -> ${new}"
+        rewrite_experiment_name "${new}" "${old_name}" "${new_name}"
     else
         echo "WOULD MV:   ${path} -> ${new}"
+        echo "  + would rewrite experiment_name '${old_name}' -> '${new_name}'"
+        echo "    in runs.csv, conversations/*/metadata.json, summary.json"
     fi
     ok=$((ok + 1))
 done
