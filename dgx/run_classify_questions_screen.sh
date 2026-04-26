@@ -12,9 +12,8 @@
 #   watch -n 10 'find outputs/question_classification -name classification.json | wc -l'
 #
 # Variáveis de ambiente (com defaults):
-#   BASE_URL         endpoint vLLM/OpenAI-compatible   (default: http://200.137.197.131:60002/v1)
-#   API_KEY          bearer token                       (default: NINGUEM-TA-PURO-2K26)
-#   MODEL            nome do modelo no endpoint         (default: nvidia/Kimi-K2.5-NVFP4)
+#   BACKEND          qwen235b (default) | external | gptoss | minimax
+#   BASE_URL/API_KEY/MODEL   override manual do backend selecionado
 #   PER_STRATUM      conversas por stratum              (default: 99999 — todas)
 #   MAX_CONCURRENCY  chamadas LLM simultâneas           (default: 32)
 #   NO_THINKING      "1" desativa modo de reasoning     (default: vazio = thinking ligado)
@@ -26,9 +25,32 @@ umask 002
 PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
 SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 
-BASE_URL="${BASE_URL:-http://200.137.197.131:60002/v1}"
-API_KEY="${API_KEY:-NINGUEM-TA-PURO-2K26}"
-MODEL="${MODEL:-nvidia/Kimi-K2.5-NVFP4}"
+# Default: Qwen3-235B-Instruct rodando no B200-2 (acesso direto na rede interna).
+# Alternativas: BACKEND=external (Kimi-K2.6 público) ou BACKEND=gptoss (gpt-oss-120b H100-02).
+BACKEND="${BACKEND:-qwen235b}"
+case "$BACKEND" in
+    qwen235b)
+        BASE_URL="${BASE_URL:-http://10.100.0.122:8026/v1}"
+        API_KEY="${API_KEY:-EMPTY}"
+        MODEL="${MODEL:-Qwen/Qwen3-235B-A22B-Instruct-2507-FP8}"
+        ;;
+    external)
+        BASE_URL="${BASE_URL:-http://200.137.197.131:60002/v1}"
+        API_KEY="${API_KEY:-NINGUEM-TA-PURO-2K26}"
+        MODEL="${MODEL:-kimi-k26}"
+        ;;
+    gptoss)
+        BASE_URL="${BASE_URL:-http://10.100.0.112:8836/v1}"
+        API_KEY="${API_KEY:-vllm_ceia_100}"
+        MODEL="${MODEL:-openai/gpt-oss-120b}"
+        ;;
+    minimax)
+        BASE_URL="${BASE_URL:-http://10.100.0.111:8060/v1}"
+        API_KEY="${API_KEY:-EMPTY}"
+        MODEL="${MODEL:-MiniMaxAI/MiniMax-M2.7}"
+        ;;
+    *) echo "BACKEND desconhecido: $BACKEND" >&2; exit 1 ;;
+esac
 PER_STRATUM="${PER_STRATUM:-99999}"
 MAX_CONCURRENCY="${MAX_CONCURRENCY:-32}"
 SEED="${SEED:-42}"

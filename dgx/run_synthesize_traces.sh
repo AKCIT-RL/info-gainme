@@ -11,15 +11,39 @@ PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
 SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 
 RUNS_PATH="${1:-}"
-MODEL="${MODEL:-gpt-4o-mini}"
 WORKERS="${WORKERS:-8}"
 TURN_WORKERS="${TURN_WORKERS:-4}"
 
-# Monta args opcionais
+# Default: Qwen3-235B no B200-2 (acesso direto na rede DGX). Override via BACKEND ou
+# BASE_URL/MODEL/API_KEY direto.
+BACKEND="${BACKEND:-qwen235b}"
+case "$BACKEND" in
+    qwen235b)
+        BASE_URL="${BASE_URL:-http://10.100.0.122:8026/v1}"
+        API_KEY="${API_KEY:-EMPTY}"
+        MODEL="${MODEL:-Qwen/Qwen3-235B-A22B-Instruct-2507-FP8}"
+        ;;
+    external)
+        BASE_URL="${BASE_URL:-http://200.137.197.131:60002/v1}"
+        API_KEY="${API_KEY:-NINGUEM-TA-PURO-2K26}"
+        MODEL="${MODEL:-kimi-k26}"
+        ;;
+    gptoss)
+        BASE_URL="${BASE_URL:-http://10.100.0.112:8836/v1}"
+        API_KEY="${API_KEY:-vllm_ceia_100}"
+        MODEL="${MODEL:-openai/gpt-oss-120b}"
+        ;;
+    openai|gpt-4o-mini)
+        BASE_URL="${BASE_URL:-}"
+        API_KEY="${API_KEY:-${OPENAI_API_KEY:-}}"
+        MODEL="${MODEL:-gpt-4o-mini}"
+        ;;
+    *) echo "BACKEND desconhecido: $BACKEND" >&2; exit 1 ;;
+esac
+
 MODEL_ARGS="--model '${MODEL}' --workers ${WORKERS} --turn-workers ${TURN_WORKERS}"
-if [ -n "${BASE_URL}" ]; then
-    MODEL_ARGS="${MODEL_ARGS} --base-url '${BASE_URL}'"
-fi
+[ -n "${BASE_URL}" ] && MODEL_ARGS="${MODEL_ARGS} --base-url '${BASE_URL}'"
+[ -n "${API_KEY}" ]  && MODEL_ARGS="${MODEL_ARGS} --api-key '${API_KEY}'"
 
 echo "=========================================="
 echo "Reasoning Traces Synthesis - $(date)"
