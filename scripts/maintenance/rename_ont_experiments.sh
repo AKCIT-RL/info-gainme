@@ -119,29 +119,43 @@ print(f"  runs.csv: {changed} rows updated")
 PYEOF
     fi
 
-    # metadata.json (per conversation) and summary.json (per experiment).
+    # Per-conversation metadata.json + judge_eval.json, and per-experiment
+    # summary.json. metadata/summary use "experiment_name"; oracle/pruner judge
+    # eval JSONs use "experiment" (no _name).
     python3 - "$exp_dir" "$old_name" "$new_name" <<'PYEOF'
 import json, sys
 from pathlib import Path
 exp_dir, old, new = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+patterns = [
+    "conversations/*/metadata.json",
+    "conversations/*/oracle_judge_eval.json",
+    "conversations/*/pruner_judge_eval.json",
+]
+files = []
+for pat in patterns:
+    files.extend(exp_dir.glob(pat))
+files.append(exp_dir / "summary.json")
+
 n = 0
-for path in list(exp_dir.glob("conversations/*/metadata.json")) + [exp_dir / "summary.json"]:
+for path in files:
     if not path.exists():
         continue
     try:
         d = json.loads(path.read_text())
     except Exception:
         continue
-    cfg = d.get("config", {})
     changed = False
-    if cfg.get("experiment_name") == old:
+    cfg = d.get("config", {})
+    if isinstance(cfg, dict) and cfg.get("experiment_name") == old:
         cfg["experiment_name"] = new; changed = True
     if d.get("experiment_name") == old:
         d["experiment_name"] = new; changed = True
+    if d.get("experiment") == old:
+        d["experiment"] = new; changed = True
     if changed:
         path.write_text(json.dumps(d, ensure_ascii=False, indent=2))
         n += 1
-print(f"  metadata/summary: {n} files updated")
+print(f"  metadata/summary/judge: {n} files updated")
 PYEOF
 }
 
