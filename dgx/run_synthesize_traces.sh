@@ -25,6 +25,13 @@ RUNS_PATH="${1:-}"
 WORKERS="${WORKERS:-8}"
 TURN_WORKERS="${TURN_WORKERS:-4}"
 
+# Filtragem (mesma convenção do scripts/judge_eval):
+#   RUN_INDEX=1                    → só run01
+#   SAMPLE_INDICES=0_10_20_..._150 → posições fixas dentro da runs.csv (underscores → vírgulas)
+RUN_INDEX_ARGS=""
+[[ -n "${RUN_INDEX:-}" ]]      && RUN_INDEX_ARGS+=" --run-index ${RUN_INDEX}"
+[[ -n "${SAMPLE_INDICES:-}" ]] && RUN_INDEX_ARGS+=" --sample-indices ${SAMPLE_INDICES//_/,}"
+
 # Default: Qwen3-235B no B200-2 (acesso direto na rede DGX). Override via BACKEND ou
 # BASE_URL/MODEL/API_KEY direto.
 BACKEND="${BACKEND:-qwen235b}"
@@ -73,12 +80,14 @@ echo "Endpoint: ${BASE_URL:-(default)}"
 echo "Workers:  ${WORKERS} conversas × ${TURN_WORKERS} turns = $(( WORKERS * TURN_WORKERS )) LLM calls max"
 echo "Log:      ${LOG_FILE}"
 echo "Started:  $(date)"
+[ -n "${RUN_INDEX:-}" ]      && echo "Run filter:   run_index=${RUN_INDEX}"
+[ -n "${SAMPLE_INDICES:-}" ] && echo "Sample idxs:  ${SAMPLE_INDICES//_/,}"
 if [ -n "${RUNS_PATH}" ]; then
     echo "CSV:      ${RUNS_PATH}"
-    SYNTHESIS_CMD="python3 scripts/reasoning_traces/synthesize_traces.py --runs '${RUNS_PATH}' ${MODEL_ARGS}"
+    SYNTHESIS_CMD="python3 scripts/reasoning_traces/synthesize_traces.py --runs '${RUNS_PATH}' ${MODEL_ARGS}${RUN_INDEX_ARGS}"
 else
     echo "Modo:     --all (todos os runs.csv sob outputs/)"
-    SYNTHESIS_CMD="python3 scripts/reasoning_traces/synthesize_traces.py --all ${MODEL_ARGS}"
+    SYNTHESIS_CMD="python3 scripts/reasoning_traces/synthesize_traces.py --all ${MODEL_ARGS}${RUN_INDEX_ARGS}"
 fi
 echo "=========================================="
 

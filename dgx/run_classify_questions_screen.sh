@@ -21,6 +21,10 @@
 #   NO_THINKING      "1" desativa modo de reasoning     (default: vazio = thinking ligado)
 #   FORCE            "1" re-classifica arquivos prontos (default: vazio)
 #   SEED             seed da amostragem estratificada   (default: 42)
+#   RUN_INDEX        manter só conversas com esse run_index (ex: 1 = só run01; default: vazio = todas)
+#   SAMPLE_INDICES   posições 0-based dentro de cada stratum, separadas por _
+#                    (ex: 0_10_20_30_40_50_60_70_80_90_100 = 11 alvos por stratum).
+#                    Underscores viram vírgulas — formato seguro para SLURM --export.
 
 umask 002
 
@@ -63,6 +67,8 @@ SEED="${SEED:-42}"
 EXTRA_FLAGS=""
 [[ "${NO_THINKING}" == "1" ]] && EXTRA_FLAGS+=" --no-thinking"
 [[ "${FORCE}" == "1" ]]       && EXTRA_FLAGS+=" --force"
+[[ -n "${RUN_INDEX:-}" ]]     && EXTRA_FLAGS+=" --run-index ${RUN_INDEX}"
+[[ -n "${SAMPLE_INDICES:-}" ]] && EXTRA_FLAGS+=" --sample-indices ${SAMPLE_INDICES//_/,}"
 
 mkdir -p "${PROJECT_DIR}/logs"
 mkdir -p "${PROJECT_DIR}/outputs/question_classification"

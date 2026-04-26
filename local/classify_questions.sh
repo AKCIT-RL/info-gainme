@@ -64,7 +64,11 @@ case "$BACKEND" in
 esac
 
 MAX_CONCURRENCY="${MAX_CONCURRENCY:-16}"
+
+# Filtragem (mesma convenção do scripts/judge_eval):
 EXTRA_FLAGS="${*:-}"
+[[ -n "${RUN_INDEX:-}" ]]      && EXTRA_FLAGS+=" --run-index ${RUN_INDEX}"
+[[ -n "${SAMPLE_INDICES:-}" ]] && EXTRA_FLAGS+=" --sample-indices ${SAMPLE_INDICES//_/,}"
 
 if [ -n "${STY:-}" ]; then
     cd "${PROJECT_DIR}"

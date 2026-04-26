@@ -25,6 +25,9 @@ TURN_WORKERS="${TURN_WORKERS:-4}"
 
 # Default: --all. Se passar argumentos, eles substituem.
 ARGS="${@:---all}"
+# Filtragem (mesma convenção de scripts/judge_eval):
+[[ -n "${RUN_INDEX:-}" ]]      && ARGS="${ARGS} --run-index ${RUN_INDEX}"
+[[ -n "${SAMPLE_INDICES:-}" ]] && ARGS="${ARGS} --sample-indices ${SAMPLE_INDICES//_/,}"
 
 if [ -n "${STY:-}" ]; then
     mkdir -p "${PROJECT_DIR}/logs"

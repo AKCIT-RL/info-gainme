@@ -58,16 +58,39 @@ def find_runs_csvs(base_dir: Path) -> list[Path]:
     )
 
 
-def seeker_paths_from_csv(runs_csv: Path) -> list[Path]:
-    paths: list[Path] = []
+def seeker_paths_from_csv(
+    runs_csv: Path,
+    run_index: int | None = None,
+    sample_indices: list[int] | None = None,
+) -> list[Path]:
+    """Same row-filter conventions as ``scripts/judge_eval``.
+
+    Filters applied in this order:
+      - ``run_index``      keep only rows with this ``run_index`` column
+      - ``sample_indices`` deterministic 0-based positions in the filtered list
+
+    Both ``None`` → full sweep.
+    """
     with runs_csv.open(encoding="utf-8") as f:
-        for row in csv.DictReader(f):
-            rel = row.get("conversation_path", "")
-            if rel:
-                seeker = OUTPUTS_BASE / rel / "seeker.json"
-                if seeker.exists() and seeker not in paths:
-                    paths.append(seeker)
+        rows = list(csv.DictReader(f))
+    if run_index is not None:
+        rows = [r for r in rows if str(r.get("run_index", "")).strip() == str(run_index)]
+    if sample_indices is not None:
+        rows = [rows[i] for i in sample_indices if 0 <= i < len(rows)]
+    paths: list[Path] = []
+    for row in rows:
+        rel = row.get("conversation_path", "")
+        if rel:
+            seeker = OUTPUTS_BASE / rel / "seeker.json"
+            if seeker.exists() and seeker not in paths:
+                paths.append(seeker)
     return paths
+
+
+def _parse_sample_indices(raw: str | None) -> list[int] | None:
+    if raw is None:
+        return None
+    return [int(x) for x in raw.split(",") if x.strip()]
 
 
 # ---------------------------------------------------------------------------
@@ -171,7 +194,14 @@ def main() -> None:
         help="JSONL de saída (uma conversa por linha).",
     )
     parser.add_argument("--force", action="store_true", help="Re-sintetiza mesmo que já esteja no JSONL")
+    parser.add_argument("--run-index", type=int, default=None,
+                        help="Mantém só linhas com esse run_index na runs.csv (ex: 1 = só run01). "
+                             "Mesma convenção do scripts/judge_eval.")
+    parser.add_argument("--sample-indices", type=str, default=None,
+                        help="Posições 0-based separadas por vírgula dentro da runs.csv após "
+                             "--run-index (ex: '0,10,20,...,150'). Determinístico.")
     args = parser.parse_args()
+    sample_indices = _parse_sample_indices(args.sample_indices)
 
     llm_config = LLMConfig(
         model=args.model,
@@ -208,7 +238,7 @@ def main() -> None:
             logger.info("%s — %s", args.seeker_file.name, msg if success else f"❌ {msg}")
 
         elif args.runs:
-            paths = seeker_paths_from_csv(args.runs)
+            paths = seeker_paths_from_csv(args.runs, args.run_index, sample_indices)
             logger.info("📂 %s — %d conversas", args.runs.parent.name, len(paths))
             process_batch(paths, llm_config, args.workers, args.turn_workers,
                           out_jsonl, lock, done_paths, desc=args.runs.parent.name)
@@ -216,12 +246,16 @@ def main() -> None:
         else:  # --all
             runs_csvs = find_runs_csvs(OUTPUTS_BASE)
             logger.info("🔎 %d runs.csv CoT encontrados", len(runs_csvs))
+            if args.run_index is not None:
+                logger.info("🎯 run_index=%d", args.run_index)
+            if sample_indices is not None:
+                logger.info("🎯 sample_indices=%s", sample_indices)
             logger.info("⚙️  workers=%d  turn-workers=%d", args.workers, args.turn_workers)
             for i, runs_csv in enumerate(tqdm(
                 runs_csvs, desc="Experimentos", unit="exp", position=0,
                 leave=True, dynamic_ncols=True, file=sys.stderr,
             )):
-                paths = seeker_paths_from_csv(runs_csv)
+                paths = seeker_paths_from_csv(runs_csv, args.run_index, sample_indices)
                 process_batch(
                     paths, llm_config, args.workers, args.turn_workers,
                     out_jsonl, lock, done_paths,

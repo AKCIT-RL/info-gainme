@@ -53,7 +53,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
@@ -185,7 +185,29 @@ def _parse_experiment(model_slug: str, experiment: str) -> Stratum | None:
     return Stratum(model_slug, experiment, domain, mode, has_cot and not has_no_cot)
 
 
-def discover_conversations(outputs_root: Path) -> dict[Stratum, list[Path]]:
+_RUN_SUFFIX_RE = re.compile(r"_run(\d+)$")
+
+
+def _conversation_run_index(turns_path: Path) -> Optional[int]:
+    """Extract run_index from ``conversations/<target>_runNN/turns.jsonl``."""
+    m = _RUN_SUFFIX_RE.search(turns_path.parent.name)
+    return int(m.group(1)) if m else None
+
+
+def discover_conversations(
+    outputs_root: Path,
+    run_index: Optional[int] = None,
+) -> dict[Stratum, list[Path]]:
+    """Walk outputs/models/<triple>/<experiment>/conversations/.
+
+    The path list inside each stratum is sorted by conversation directory name
+    (= ``<target>_runNN``), which matches the ordering used by run.csv after
+    target_id sorting. ``sample_indices`` (in :func:`stratified_sample`) then
+    consumes deterministic positions in that sorted list.
+
+    ``run_index`` (e.g. ``1``) keeps only ``_runNN`` matching, so analysis can
+    restrict to first-run-per-target — same convention as ``scripts/judge_eval``.
+    """
     buckets: dict[Stratum, list[Path]] = defaultdict(list)
     models_root = outputs_root / "models"
     if not models_root.exists():
@@ -195,7 +217,11 @@ def discover_conversations(outputs_root: Path) -> dict[Stratum, list[Path]]:
             stratum = _parse_experiment(model_dir.name, exp_dir.name)
             if stratum is None:
                 continue
-            buckets[stratum].extend(exp_dir.glob("conversations/*/turns.jsonl"))
+            paths = sorted(exp_dir.glob("conversations/*/turns.jsonl"),
+                           key=lambda p: p.parent.name)
+            if run_index is not None:
+                paths = [p for p in paths if _conversation_run_index(p) == run_index]
+            buckets[stratum].extend(paths)
     return buckets
 
 
@@ -203,13 +229,27 @@ def stratified_sample(
     buckets: dict[Stratum, list[Path]],
     per_stratum: int | None,
     rng: random.Random,
+    sample_indices: Optional[list[int]] = None,
 ) -> list[tuple[Stratum, Path]]:
-    """per_stratum=None → take everything; otherwise cap each stratum."""
+    """Pick conversations from each bucket.
+
+    Priority of selection mode (highest wins):
+      - ``sample_indices`` (e.g. ``[0,10,20,...]``): deterministic positions in
+        the sorted path list of each stratum. Mirrors ``judge_eval`` so the same
+        targets are evaluated across analysis pipelines.
+      - ``per_stratum``: random sample of N paths per stratum (legacy).
+      - both ``None``: full sweep.
+    """
     picks: list[tuple[Stratum, Path]] = []
     for stratum, paths in buckets.items():
         if not paths:
             continue
-        chosen = list(paths) if per_stratum is None else rng.sample(paths, min(per_stratum, len(paths)))
+        if sample_indices is not None:
+            chosen = [paths[i] for i in sample_indices if 0 <= i < len(paths)]
+        elif per_stratum is None:
+            chosen = list(paths)
+        else:
+            chosen = rng.sample(paths, min(per_stratum, len(paths)))
         picks.extend((stratum, p) for p in chosen)
     return picks
 
@@ -478,6 +518,13 @@ def summarise(conv_results: list[dict[str, Any]]) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 
+def _parse_sample_indices(raw: Optional[str]) -> Optional[list[int]]:
+    """Same parser as scripts/judge_eval/evaluate.py."""
+    if raw is None:
+        return None
+    return [int(x) for x in raw.split(",") if x.strip()]
+
+
 def _stratum_from_turns_file(path: Path) -> Stratum:
     parts = path.resolve().parts
     try:
@@ -495,14 +542,22 @@ async def _amain(args: argparse.Namespace) -> int:
     if args.turns_file is not None:
         picks = [(_stratum_from_turns_file(args.turns_file), args.turns_file)]
     else:
-        buckets = discover_conversations(args.outputs_root)
-        print(f"Discovered {sum(len(v) for v in buckets.values())} conversations across {len(buckets)} strata.")
+        sample_indices = _parse_sample_indices(args.sample_indices)
+        buckets = discover_conversations(args.outputs_root, run_index=args.run_index)
+        n_total = sum(len(v) for v in buckets.values())
+        print(f"Discovered {n_total} conversations across {len(buckets)} strata"
+              f"{f' (run_index={args.run_index})' if args.run_index else ''}.")
         for st, paths in sorted(buckets.items(), key=lambda kv: (kv[0].domain, kv[0].mode, kv[0].cot)):
             cot = "cot" if st.cot else "no_cot"
             print(f"  {st.domain}/{st.mode}/{cot} [{st.model_slug}/{st.experiment}]: {len(paths)}")
-        picks = stratified_sample(buckets, args.per_stratum, rng)
-        cap = "all" if args.per_stratum is None else args.per_stratum
-        print(f"Sampled {len(picks)} conversations (per_stratum={cap}, seed={args.seed}).")
+        picks = stratified_sample(buckets, args.per_stratum, rng, sample_indices=sample_indices)
+        if sample_indices is not None:
+            mode = f"sample_indices={sample_indices}"
+        elif args.per_stratum is not None:
+            mode = f"per_stratum={args.per_stratum}, seed={args.seed}"
+        else:
+            mode = "all"
+        print(f"Sampled {len(picks)} conversations ({mode}).")
 
     if args.dry_run:
         for st, path in picks:
@@ -598,6 +653,13 @@ def main() -> int:
         default=None,
         help="Conversations per stratum. Default: None = full sweep; pass an int to cap.",
     )
+    p.add_argument("--run-index", type=int, default=None,
+                   help="Keep only conversations whose dir ends with _runNN matching this number "
+                        "(e.g. 1 → only run01). Same convention as scripts/judge_eval.")
+    p.add_argument("--sample-indices", type=str, default=None,
+                   help="Comma-separated 0-based positions in each stratum's sorted path list "
+                        "(e.g. '0,10,20,30,40,50,60,70,80,90,100'). Deterministic and aligned "
+                        "with judge_eval. Overrides --per-stratum/--seed when provided.")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--max-concurrency", type=int, default=16, help="Max in-flight LLM requests.")
     p.add_argument("--no-thinking", action="store_true", help="Disable reasoning mode on the classifier.")
