@@ -1,8 +1,8 @@
-# Benchmark Configuration - Objects (objects_158, Olmo-3-7B-Instruct, FO + No COT)
+# Benchmark Configuration - Objects (objects_158, OLMo-3-7B-Instruct, FO + No COT)
 
 models:
   seeker:
-    model: "Olmo-3-7B-Instruct"
+    model: "OLMo-3-7B-Instruct"
     timeout: 180.0
 
   oracle:

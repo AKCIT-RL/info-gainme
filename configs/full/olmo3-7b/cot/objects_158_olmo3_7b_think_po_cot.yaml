@@ -1,8 +1,8 @@
-# Benchmark Configuration - Objects (objects_158, Olmo-3-7B-Think, PO + COT)
+# Benchmark Configuration - Objects (objects_158, OLMo-3-7B-Think, PO + COT)
 
 models:
   seeker:
-    model: "Olmo-3-7B-Think"
+    model: "OLMo-3-7B-Think"
     timeout: 180.0
     extra_body:
       chat_template_kwargs:
