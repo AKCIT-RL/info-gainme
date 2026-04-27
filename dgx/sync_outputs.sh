@@ -1,8 +1,13 @@
 #!/bin/bash
-# Sync outputs/models/ between DGX nodes.
+# Sync outputs/models/ between DGX nodes — bidirecional seguro com --update.
 #
-# Pull (default): remote → h2   (--ignore-existing, safe to run anytime)
-# Push:           h2 → remotes  (overwrites, h2 is authoritative)
+# Em ambas as direções, rsync só transfere arquivos cujo mtime do source é
+# MAIS NOVO que o destination. Isso protege:
+#   - Pull: arquivos que h2 tem com versão mais nova não são sobrescritos.
+#   - Push: arquivos que b200/h3 estão escrevendo (mais novos) não são
+#           sobrescritos com versões velhas que h2 tenha.
+# Resultado: pull + push deixa todos os nodes com a versão mais recente de
+# cada arquivo, sem destruição mesmo durante benchmarks ativos.
 #
 # Usage:
 #   bash dgx/sync_outputs.sh [h3|b200|all]          # pull from remote(s)
@@ -39,18 +44,18 @@ sync_node() {
     local logfile="$LOGS/sync_${MODE}_${name}_${TS}.log"
 
     if [ "$MODE" = "push" ]; then
-        echo "==> Pushing h2 → $name ($ip)"
+        echo "==> Pushing h2 → $name ($ip)  (--update: only newer files overwrite)"
         echo "    Log: $logfile"
         echo "    Started: $(date)"
-        rsync -rlv --omit-dir-times \
+        rsync -rlv --omit-dir-times --update \
             "$DEST" \
             "${ip}:${DEST}" \
             >> "$logfile" 2>&1
     else
-        echo "==> Syncing from $name ($ip) → h2"
+        echo "==> Pulling $name ($ip) → h2  (--update: only newer files overwrite)"
         echo "    Log: $logfile"
         echo "    Started: $(date)"
-        rsync -rlv --omit-dir-times --ignore-existing \
+        rsync -rlv --omit-dir-times --update \
             "${ip}:${DEST}" \
             "$DEST" \
             >> "$logfile" 2>&1
