@@ -64,6 +64,8 @@ def get_seeker_system_prompt(
     """
     if observability_mode in ("FULLY_OBSERVABLE", "FO"):
         prompt_name = "seeker_system_fo"
+    elif observability_mode in ("INITIALLY_OBSERVABLE", "IO"):
+        prompt_name = "seeker_system_io"
     else:
         prompt_name = "seeker_system_po"
     content = load_prompt(prompt_name)

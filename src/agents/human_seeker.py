@@ -92,8 +92,8 @@ class HumanSeekerAgent:
     # --- Game interface ---
 
     def add_initial_candidates(self, candidates_text: str, turn: int) -> None:
-        """Display the full candidate list at the start (FO mode only)."""
-        if self._observability_mode != ObservabilityMode.FULLY_OBSERVABLE:
+        """Display the full candidate list at the start (FO and IO modes)."""
+        if self._observability_mode == ObservabilityMode.PARTIALLY_OBSERVABLE:
             return
         if not candidates_text:
             return
