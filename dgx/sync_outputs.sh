@@ -1,5 +1,10 @@
 #!/bin/bash
-# Sync outputs/models/ between DGX nodes — bidirecional seguro com --update.
+# Sync outputs/ entre nodes DGX — bidirecional seguro com --update.
+#
+# Cobre 2 conjuntos:
+#   1. outputs/models/ recursivo (runs.csv, summary.json, conversations/...)
+#   2. arquivos de análise no root: seeker_traces.jsonl, question_classifications.jsonl,
+#      unified_experiments.csv, reasoning_traces_analysis.json, model_summary.csv
 #
 # Em ambas as direções, rsync só transfere arquivos cujo mtime do source é
 # MAIS NOVO que o destination. Isso protege:
@@ -21,8 +26,19 @@ set -uo pipefail
 
 PROJECT=/raid/user_danielpedrozo/projects/info-gainme_dev
 DEST="$PROJECT/outputs/models/"
+OUTPUTS_ROOT="$PROJECT/outputs/"
 LOGS="$PROJECT/logs"
 mkdir -p "$LOGS"
+
+# Arquivos de análise no nível raiz de outputs/. Cada um é opcional — rsync
+# silenciosamente pula os que não existem do lado source.
+ANALYSIS_FILES=(
+    "seeker_traces.jsonl"
+    "question_classifications.jsonl"
+    "unified_experiments.csv"
+    "reasoning_traces_analysis.json"
+    "model_summary.csv"
+)
 
 IP_H3=10.100.0.113
 IP_B200=10.100.0.121
@@ -60,6 +76,25 @@ sync_node() {
             "$DEST" \
             >> "$logfile" 2>&1
     fi
+
+    # Sync de arquivos de análise no root de outputs/ (JSONL + CSVs agregados).
+    # Mesma direção, mesma flag --update. Faz cada arquivo separado pra não
+    # falhar caso algum não exista no source — `--ignore-missing-args` cobre isso.
+    {
+        echo ""
+        echo "--- analysis files ($MODE) ---"
+        for f in "${ANALYSIS_FILES[@]}"; do
+            if [ "$MODE" = "push" ]; then
+                rsync -lv --update --ignore-missing-args \
+                    "${OUTPUTS_ROOT}${f}" \
+                    "${ip}:${OUTPUTS_ROOT}${f}" 2>&1 || true
+            else
+                rsync -lv --update --ignore-missing-args \
+                    "${ip}:${OUTPUTS_ROOT}${f}" \
+                    "${OUTPUTS_ROOT}${f}" 2>&1 || true
+            fi
+        done
+    } >> "$logfile" 2>&1
 
     local rc=$?
     local transferred
