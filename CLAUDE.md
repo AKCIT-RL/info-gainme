@@ -193,14 +193,53 @@ Aggregates all `seeker_traces.json` (CoT only) to generate `reasoning_traces_ana
 ```yaml
 extra_body:
   chat_template_kwargs:
-    enable_thinking: true
-use_reasoning: true
+    enable_thinking: true       # Qwen-specific; ignored by other models
+use_reasoning: true              # tells LLMAdapter to capture <think> blocks
 ```
 No-CoT configs omit both fields entirely.
+
+**Reasoning controls per model family:**
+- **Qwen3** (Instruct/Thinking): `enable_thinking: true|false` toggles native CoT.
+- **gpt-oss** (20b, 120b): no on/off — use `extra_body.reasoning_effort: "minimal"|"low"|"medium"|"high"`. `enable_thinking` is a no-op.
+- **Olmo-Think, Phi-4-reasoning, Nemotron-Cascade-Thinking**: always reason (recipe-baked). `enable_thinking` is a no-op; just set `use_reasoning: true` so the adapter captures the `<think>` blocks.
+- vLLM `--reasoning-parser` is auto-detected by `dgx/run_full_benchmark.sh::auto_reasoning_parser` from `MODEL_NAME` (`*gpt-oss*`→`openai_gptoss`, `*qwen3*`→`qwen3`, `*olmo*`→`olmo3`; others omit). Override with `MODEL{1,2}_REASONING_PARSER=name|none`.
 
 **Observability modes:**
 - `FULLY_OBSERVABLE` — Seeker sees the full candidate list each turn
 - `PARTIALLY_OBSERVABLE` — Seeker sees only the Q&A history
+
+### Standard config conventions
+
+All non-ablation configs in `configs/full/` follow these defaults — keep new configs aligned, otherwise downstream analysis breaks:
+
+| Field | Value | Notes |
+|---|---|---|
+| `models.oracle.model` | `Qwen3-8B` | enforced for all 134 main configs |
+| `models.pruner.model` | `Qwen3-8B` | same |
+| `models.{oracle,pruner}.timeout` | `120.0` | |
+| `game.max_turns` | `30` | |
+| `dataset.runs_per_target` | `1` | older runs (8b/30b/4b/olmo3-7b) used `3` and may show pct >100% in audits — cap at `expected` for honest pct |
+
+**Ablation configs** (`configs/full/ablation_pruner_oracle/`) intentionally vary oracle+pruner (Gemma-12B or Nemotron-Cascade-8B in both); ignore them when computing main-track standardization checks.
+
+**`configs/deprecated/`** is in `.gitignore` but `git mv` allows tracking. Move retired model folders here instead of deleting — `outputs/models/` of those models stays as audit trail. The `audit_experiments.py` walks only `configs/full/`, so deprecated configs don't pollute progress totals. Currently deprecated: gemma-{12b,4b}, llama-{1b,3b,11b} (Llama-3.2 family), nemotron-4b.
+
+### Critical: `MODEL_NAME` ↔ `seeker.model` exact match
+
+The `MODEL1_NAME`/`MODEL2_NAME` env vars passed to `dgx/run_full_benchmark.sh` **must equal** the `seeker.model`/`oracle.model`/`pruner.model` strings inside the target YAMLs **verbatim** (case-sensitive). Mismatches don't error — they fall through `config_loader.py` to `OPENAI_API_KEY`, which hits `api.openai.com` and silently 404-loops for hours. Common pitfalls:
+
+- **HF canonical casing for Olmo:** repo uses `Olmo-3-7B-Think` / `Olmo-3-7B-Instruct` (lowercase `olm`). Earlier we tried uppercase `OLMo` and reverted in commit `ed76a7d`. **Do not change again.**
+- **Org prefix** (`Qwen/`, `meta-llama/`, `microsoft/`) belongs in `MODEL1` (HF download path), **not** `MODEL1_NAME` (served-model-name) — except for some configs (e.g., `235b/no_cot/*.yaml` use `"Qwen/Qwen3-235B-A22B-Instruct-2507-FP8"` as the served name on purpose).
+- **`experiment.name` may carry suffixes** like `_with_kickoff` — that's the canonical name for some Nemotron-8B/0.6B-PO/Phi-4 configs (not a deprecation marker). The audit script reads `experiment.name`, not the YAML filename, so output dirs follow the experiment name.
+
+### `_ont` suffix (oracle-no-thinking)
+
+Sufix applied by `scripts/maintenance/rename_ont_experiments.sh` to ~43 output dirs where the oracle silently ran without `<think>` due to a vLLM bug (`response_format=json_schema strict` without `--reasoning-parser`). The data is preserved as audit trail; canonical re-runs go to dirs without the suffix.
+
+- **`scripts/maintenance/detect_ont_runs.py`** — walks every conversation, tags `is_ont` based on whether the first assistant entry in `oracle.json:reasoning_history` contains `<think>`. Use `--oracle-only Qwen3-8B` to avoid false positives on ablation runs (oracles like Nemotron-Cascade-8B legitimately don't think). Parallelized via `ThreadPoolExecutor`.
+- **`scripts/maintenance/merge_ont_into_canonical.py`** — copies missing `(target_id, run_index)` rows from `<exp>_ont/` into the canonical `<exp>/`. Refuses on header mismatch; rolls back conv copy if CSV append fails. Dry-run by default; pass `--apply` to execute. Don't run while a benchmark is actively writing to the same canonical (no file locking).
+- **`audit_experiments.py --include-ont`** — produces `outputs/configs_progress_with_ont.csv` with `ont_actual` and `best_actual` columns, treating `_ont` data as fallback. Useful when you want to see "if we accept the contaminated data, how complete are we?"
+- **Quality caveat:** `_ont` data has correct factual answers (ground truth pruning still worked) but degraded oracle compliance/win-rate. Rankings between models are preserved; absolute IG/turn may shift ~0.1–0.3 bits. OK for exploration, **re-run before publishing**.
 
 ## Code architecture
 
@@ -384,6 +423,34 @@ Gotchas:
 - Bash interpretation: inside the outer double quotes, `&&` is interpreted by the outer shell. Use `;` between commands to keep them on the SSH side (or escape: `\&\&`).
 - Job submitter must `cd` into the project directory; SSH starts in `/home/<user>` by default.
 - Check julia's queue: `bash -ic 'asjulia "squeue -u user_juliadollis"'` — equivalent alias `sqj` exists in `.bashrc`.
+- The `asjulia` alias is defined **only on h2's `~/.bashrc`** (not on the laptop). To use from the laptop, ssh into h2 first: `ssh user_danielpedrozo@10.100.0.112 'bash -ic "asjulia \"...\""'`. Stderr will include `tcsetattr: Inappropriate ioctl for device` warnings — those are harmless (no TTY in non-interactive ssh), output still works.
+
+## SLURM job management
+
+**Deprioritize own jobs (push to back of queue):**
+```bash
+scontrol update job=<JID> Nice=10000
+```
+Higher `Nice` = lower priority. Useful when a job re-runs work that's already covered by `_ont` fallback data and you want it to run last. Verify with `squeue -u $USER --sort=-Q -o "%.7i %.10p %r"`.
+
+**`scontrol top` is blocked for non-admin users.** Don't try — it returns `Access/permission denied`. The Nice trick above is the workaround for prioritization.
+
+**Recover the original `sbatch` command** for a queued or completed job (handy when redistributing across partitions/users):
+```bash
+sacct -j <JID> --format=JobID,SubmitLine%500 -X
+```
+The `SubmitLine` column has the full submission with all `--export` env vars. Replay it with a different `--partition` to move workload between nodes.
+
+**Cancel + resubmit pattern** (e.g., to move 2 jobs from b200 to h100n2):
+```bash
+scancel 19031 19032
+# then sbatch with --partition=h100n2 ... using the same --export from sacct
+```
+
+**Common failure causes** (also see "Job sanity check" section):
+- vLLM "died before readiness" → check `logs/info-gainme-full-<JID>-vllm-<MODELNAME>.log` for OOM/CUDA arch issues
+- `runs.csv` mtime frozen for hours while job RUNNING → MODEL_NAME mismatch silently 404-looping; cancel and resubmit
+- HF gated repo (`meta-llama/*`, `microsoft/Phi-4-reasoning` sometimes) → 403 GatedRepoError; user must request access on HuggingFace before the job's HF download succeeds
 
 ## Syncing between nodes
 
@@ -399,6 +466,21 @@ rsync -av --exclude='outputs' --exclude='logs' --exclude='hf-cache' --exclude='.
 # use git pull in H100-03 if remote is tracked
 ssh 10.100.0.113 'cd /raid/user_danielpedrozo/projects/info-gainme_dev; git fetch origin; git reset --hard origin/main'
 ```
+
+**Outputs sync (`dgx/sync_outputs.sh`)** uses **`rsync --update` bidirectionally** (both pull and push) — `--update` only overwrites when the source mtime is newer, so it's safe to run during active benchmarks. Calling pull-then-push converges all nodes to the latest version of each file without destruction. **Never use `--delete` or `--ignore-existing`** — both can lose in-flight benchmark data.
+
+**Code sync via git** (preferred over rsync for code+configs): commit local changes locally, push to origin, then on each node:
+```bash
+ssh user_danielpedrozo@<ip> 'cd /raid/user_danielpedrozo/projects/info-gainme_dev && \
+  git stash --include-untracked && \
+  git pull origin main && \
+  git stash drop'
+```
+The `git stash --include-untracked` step handles two common cases cleanly:
+- Local `D` (deleted) modifications matching upstream deletions → resolves automatically when pulling.
+- Untracked files that conflict with new tracked files coming from upstream → moved out of the way.
+
+If the local stash held something you actually wanted, replace `git stash drop` with `git stash pop` (and resolve any conflicts).
 
 **Node IPs** (internal network):
 - `dgx-H100-02` — `10.100.0.112`
