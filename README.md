@@ -122,13 +122,19 @@ use_reasoning: true
 
 ```
 Benchmark
-  └── runs.csv + conversations/*/seeker.json
+  └── runs.csv + conversations/*/{seeker,oracle,pruner}.json + turns.jsonl
          │
-         ├── dgx/run_analyze_results.sh   →  summary.json + variance.json + unified_experiments.csv
+         ├── dgx/run_analyze_results.sh           →  summary.json + variance.json + unified_experiments.csv
+         │
+         ├── dgx/run_classify_questions_screen.sh →  outputs/question_classifications.jsonl
+         │      (LLM classifica cada pergunta — type, subtype, redundancy)
          │
          └── (só CoT) dgx/run_synthesize_traces.sh  →  seeker_traces.json por conversa
                               │
-                              └── dgx/run_analyze_traces.sh  →  reasoning_traces_analysis.json
+                              ├── dgx/run_analyze_traces.sh           →  reasoning_traces_analysis.json
+                              │
+                              └── dgx/run_evaluate_choices_screen.sh  →  question_evaluation.json por conversa
+                                     (re-roda Oracle+Pruner em cada candidata p/ IG contrafactual)
 ```
 
 ### `dgx/run_analyze_results.sh`
@@ -158,19 +164,9 @@ MODEL=Qwen3-8B BASE_URL=http://10.100.0.112:8020/v1 ./dgx/run_synthesize_traces.
 
 ---
 
-### `dgx/run_all_synthesize_traces.sh`
-
-Atalho para sintetizar todos os traces de uma vez, sem `sg sd22` (ambiente pessoal).
-
-```bash
-./dgx/run_all_synthesize_traces.sh
-```
-
----
-
 ### `dgx/run_analyze_traces.sh`
 
-Lê todos os `seeker_traces.json` e produz análise agregada do raciocínio do Seeker: perguntas mais consideradas, padrões de decisão, distribuição de turnos. Só processa experimentos CoT.
+Lê todos os `seeker_traces.json` e produz análise agregada do raciocínio do Seeker: perguntas mais consideradas, padrões de decisão, distribuição de turnos. Só processa experimentos CoT. Não usa LLM.
 
 ```bash
 ./dgx/run_analyze_traces.sh
@@ -178,6 +174,70 @@ Lê todos os `seeker_traces.json` e produz análise agregada do raciocínio do S
 ```
 
 **Saída:** `outputs/reasoning_traces_analysis.json`
+
+---
+
+### `dgx/run_classify_questions_screen.sh`
+
+LLM classifica cada pergunta do Seeker (tipo, subtipo, redundância) em todas as conversas. Idempotente — pula conversas já presentes em `outputs/question_classifications.jsonl`.
+
+```bash
+# Default: backend qwen235b (atualmente offline) — geralmente override pra gptoss
+BACKEND=gptoss BASE_URL=http://10.100.0.112:8510/v1 API_KEY=EMPTY MODEL=gpt-oss-120b \
+  bash dgx/run_classify_questions_screen.sh
+
+# Filtros úteis
+RUN_INDEX=1 MAX_CONCURRENCY=64 BACKEND=gptoss bash dgx/run_classify_questions_screen.sh
+```
+
+**Backends conhecidos:** `qwen235b` (B200-2:8026, default mas frequentemente off), `gptoss` (gpt-oss-120b H100-02), `external` (Kimi-K2.6 público), `minimax` (MiniMax-M2.7 H100-01).
+
+**Saída:** `outputs/question_classifications.jsonl` (uma linha por conversa, com campo `analysis_model`).
+
+---
+
+### `dgx/run_evaluate_choices_screen.sh`
+
+Para cada turno em conversas CoT com `seeker_traces.json`, re-roda Oracle+Pruner em cada pergunta candidata considerada pelo Seeker e calcula o IG contrafactual. Permite ranquear escolhas reais vs alternativas. Resume automático.
+
+```bash
+# Default: Qwen3-8B em H100-02:8461
+bash dgx/run_evaluate_choices_screen.sh                      # --all
+bash dgx/run_evaluate_choices_screen.sh outputs/.../runs.csv # CSV específico
+
+# Mais paralelismo / endpoint custom
+MAX_WORKERS=16 bash dgx/run_evaluate_choices_screen.sh
+BASE_URL=http://10.100.0.113:9200/v1 bash dgx/run_evaluate_choices_screen.sh
+```
+
+**Saída:** `conversations/<alvo>/question_evaluation.json` por conversa + `question_evaluations_summary.json` por experimento.
+
+---
+
+### Disparando os 3 jobs via screen na DGX
+
+Os 3 wrappers de análise rodam em screen na H100-02 (onde estão os endpoints LLM). Ordem típica:
+
+```bash
+ssh user_danielpedrozo@10.100.0.112 'cd /raid/user_danielpedrozo/projects/info-gainme_dev && \
+  screen -dmS traces       bash -c "BACKEND=gptoss BASE_URL=http://10.100.0.112:8510/v1 API_KEY=EMPTY MODEL=gpt-oss-120b RUN_INDEX=1 bash dgx/run_synthesize_traces.sh; exec bash" && \
+  screen -dmS classify     bash -c "BACKEND=gptoss BASE_URL=http://10.100.0.112:8510/v1 API_KEY=EMPTY MODEL=gpt-oss-120b RUN_INDEX=1 MAX_CONCURRENCY=64 bash dgx/run_classify_questions_screen.sh; exec bash" && \
+  screen -dmS eval-choices bash -c "bash dgx/run_evaluate_choices_screen.sh; exec bash" && \
+  sleep 3 && screen -ls'
+```
+
+Acompanhar:
+```bash
+ssh user_danielpedrozo@10.100.0.112 'screen -ls'
+ssh user_danielpedrozo@10.100.0.112 'tail -f /raid/user_danielpedrozo/projects/info-gainme_dev/logs/{traces,classify,eval-choices}-latest.out'
+ssh -t user_danielpedrozo@10.100.0.112 'screen -r traces'   # Ctrl+A D pra sair sem matar
+```
+
+**Endpoints relevantes** (conferir antes de disparar — endpoints caem com frequência):
+- gpt-oss-120b: H100-02 `:8510` (sem auth) ou `:8836` (auth `vllm_ceia_100`, sleep-mode)
+- Qwen3-8B (oracle/pruner): H100-02 `:8461` (sem auth)
+
+Cada JSONL gravado pelos scripts inclui o campo `analysis_model` com o modelo usado na análise — útil quando uma rodada começa com um backend e termina com outro.
 
 ---
 
