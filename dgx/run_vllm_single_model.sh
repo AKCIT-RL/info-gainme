@@ -7,7 +7,7 @@
 #SBATCH --output=/raid/user_danielpedrozo/projects/info-gainme_dev/logs/%x-%j.log
 
 # porta do servidor (interna ao nó)
-export VLLM_PORT=8088
+export VLLM_PORT=8800
 # Configuração do modelo
 # export MODEL="Qwen/Qwen3-30B-A3B-Thinking-2507"
 # export MODEL_NAME="Qwen3-30B-A3B-Thinking-2507"
