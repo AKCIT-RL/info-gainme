@@ -189,9 +189,13 @@ class Orchestrator:
             active_count_before = len(active_candidates)
             h_before = self._entropy.compute(active_count_before)
 
-            # Inject candidate list on first turn if fully observable
+            # Inject candidate list on first turn for FO and IO modes.
+            # FO will keep updating the pool every turn; IO sees it only here.
             candidates_text = self._pool.to_text()
-            if turn == 1 and self._seeker.observability_mode.name == "FULLY_OBSERVABLE":
+            if turn == 1 and self._seeker.observability_mode.name in (
+                "FULLY_OBSERVABLE",
+                "INITIALLY_OBSERVABLE",
+            ):
                 self._seeker.add_initial_candidates(candidates_text, turn)
 
             # Seeker asks a question

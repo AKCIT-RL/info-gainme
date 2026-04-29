@@ -65,7 +65,8 @@ class SeekerAgent:
         )
 
         # Thinking-model chat templates only open <think> after a user turn;
-        # FO supplies one via add_initial_candidates, PO needs this kickoff.
+        # FO and IO supply one via add_initial_candidates (the candidate list
+        # itself is the kickoff), PO needs this synthetic kickoff.
         if self._observability_mode == ObservabilityMode.PARTIALLY_OBSERVABLE:
             self._llm_adapter.append_history(
                 "user",
@@ -126,17 +127,21 @@ class SeekerAgent:
     def add_initial_candidates(self, candidates_text: str, turn: int) -> None:
         """Inject the initial candidate list into the conversation once.
 
+        Fires for FULLY_OBSERVABLE and INITIALLY_OBSERVABLE; no-op for PO.
+
         Args:
             candidates_text: Textual representation of all candidates.
             turn: Current turn number.
         """
-        if self._observability_mode != ObservabilityMode.FULLY_OBSERVABLE:
+        if self._observability_mode == ObservabilityMode.PARTIALLY_OBSERVABLE:
             return
         if not candidates_text or self._initial_candidates_injected:
             return
 
-        context = self._build_context(candidates_text, turn)
-        self._llm_adapter.append_history("user", f"[Turn {turn}/{self._max_turns}] [Computer] - {context}")
+        self._llm_adapter.append_history(
+            "user",
+            f"[Turn {turn}/{self._max_turns}] [Computer] - {candidates_text}",
+        )
         self._initial_candidates_injected = True
 
     def _build_context(self, candidates_text: Optional[str], turn: int) -> Optional[str]:
@@ -147,7 +152,12 @@ class SeekerAgent:
             )
             return candidates_text
 
-        elif self.observability_mode == ObservabilityMode.PARTIALLY_OBSERVABLE:
+        elif self.observability_mode in (
+            ObservabilityMode.PARTIALLY_OBSERVABLE,
+            ObservabilityMode.INITIALLY_OBSERVABLE,
+        ):
+            # IO behaves like PO after the initial reveal — no candidate list
+            # is appended on subsequent turns. The orchestrator passes None.
             return None
 
         else:
