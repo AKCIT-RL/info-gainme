@@ -3,7 +3,9 @@
 **Status:** Active  
 **Path:** `human_baseline/web_app.py`  
 **Port:** `5055` (default)  
-**Started:** `nohup .venv/bin/python human_baseline/web_app.py --port 5055 --ollama-url http://localhost:11435/v1 &`
+**Started:** `nohup .venv/bin/python human_baseline/web_app.py --port 5055 --ollama-url http://10.10.10.20:11434/v1 &`
+
+> ⚠️ Always point directly at jarbas (`10.10.10.20:11434`) — never use the gateway (`localhost:11435`). The gateway may route to slurm-gpu which has only qwen3:4b, never qwen3:8b. Oracle/pruner must always use qwen3:8b to match benchmark conditions.
 
 ---
 
