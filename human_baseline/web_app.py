@@ -720,8 +720,8 @@ def ask_oracle(game_id):
     game.pending_turn_start = datetime.now()
 
     logger.info(
-        "Game %s | turn %d | oracle answered: %s (game_over=%s)",
-        game_id, turn, answer.text, answer.game_over,
+        "Game %s | turn %d | Q: %r | oracle answered: %s (game_over=%s)",
+        game_id, turn, question_text, answer.text, answer.game_over,
     )
 
     return jsonify({

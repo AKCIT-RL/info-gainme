@@ -164,6 +164,12 @@ class PrunerAgent:
             logger.info("Pruner unknown labels (first 5): %s", list(unknown_labels)[:5])
             logger.info("Sample active labels (first 5): %s", list(active_labels)[:5])
 
+        if len(keep_labels) == len(active_labels):
+            logger.info(
+                "Pruner kept ALL %d candidates (turn %d) — 0 IG. Rationale: %s",
+                len(active_labels), turn_index, rationale[:200],
+            )
+
         if not keep_labels:
             logger.warning(
                 "Pruner returned empty keep_labels after matching (turn %d) — skipping pruning.",
