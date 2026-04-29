@@ -14,6 +14,7 @@ from pydantic import BaseModel
 class ObservabilityMode(Enum):
     FULLY_OBSERVABLE = "FO"
     PARTIALLY_OBSERVABLE = "PO"
+    INITIALLY_OBSERVABLE = "IO"
 
 @dataclass
 class Question:

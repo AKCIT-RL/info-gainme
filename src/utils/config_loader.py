@@ -97,6 +97,8 @@ def load_benchmark_config(config_path: Path, api_key: str, servers_override_path
         observability_mode = ObservabilityMode.FULLY_OBSERVABLE
     elif mode_str in ["PARTIALLY_OBSERVABLE", "PO"]:
         observability_mode = ObservabilityMode.PARTIALLY_OBSERVABLE
+    elif mode_str in ["INITIALLY_OBSERVABLE", "IO"]:
+        observability_mode = ObservabilityMode.INITIALLY_OBSERVABLE
     else:
         raise ValueError(f"Unknown observability mode: {mode_str}")
     
