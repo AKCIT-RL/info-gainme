@@ -6,6 +6,9 @@ models:
     model: "google/gemma-4-31B-it"
     api_key: "vllm_ceia_100"
     timeout: 180.0
+    extra_body:
+      chat_template_kwargs:
+        enable_thinking: true
     use_reasoning: true
 
   oracle:
