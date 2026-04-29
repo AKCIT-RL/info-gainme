@@ -501,7 +501,7 @@ def login():
     if request.method == "POST":
         email = (request.form.get("email") or "").strip()
         if not email or "@" not in email:
-            return render_template("login.html", error="Please enter a valid email address.")
+            return render_template("login.html", error="Please enter a valid email address.", saved_email=email)
 
         # Assign config (balanced) — same config returned for returning participants
         config_key = assign_config_for_participant(email)
@@ -518,17 +518,20 @@ def login():
             game = create_game(config_key, participant_email=email)
         except Exception as e:
             logger.error("Failed to create game for %s (config=%s): %s", email, config_key, e)
-            return render_template("login.html", error=f"Failed to start game: {e}")
+            return render_template("login.html", error=f"Failed to start game: {e}", saved_email=email)
 
         with GAMES_LOCK:
             GAMES[game.id] = game
 
         record_game_for_participant(email)
         logger.info("Participant %s assigned config=%s, game=%s", email, config_key, game.id)
-        return redirect(url_for("game_page", game_id=game.id))
+        resp = redirect(url_for("game_page", game_id=game.id))
+        resp.set_cookie("participant_email", email, max_age=365 * 24 * 3600, samesite="Lax")
+        return resp
 
-    # GET — show login form
-    return render_template("login.html", error=None)
+    # GET — show login form (pre-fill email from cookie if available)
+    saved_email = request.cookies.get("participant_email", "")
+    return render_template("login.html", error=None, saved_email=saved_email)
 
 
 @app.route("/")

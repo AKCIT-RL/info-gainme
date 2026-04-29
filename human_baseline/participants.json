@@ -1,0 +1,38 @@
+{
+  "participants": {
+    "bryanlmoliveira@gmail.com": {
+      "email": "bryanlmoliveira@gmail.com",
+      "config": "diseases_160_human_fo",
+      "assigned_at": "2026-04-29T17:15:08.017822",
+      "games": 3
+    },
+    "test@example.com": {
+      "email": "test@example.com",
+      "config": "diseases_160_human_hint",
+      "assigned_at": "2026-04-29T19:23:21.842949",
+      "games": 2
+    },
+    "bryan@test.com": {
+      "email": "bryan@test.com",
+      "config": "diseases_160_human_po",
+      "assigned_at": "2026-04-29T19:27:36.535229",
+      "games": 2
+    }
+  },
+  "config_counts": {
+    "diseases_160_human_fo": 1,
+    "diseases_160_human_hint": 1,
+    "diseases_160_human_po": 1,
+    "diseases_160_human_prior": 0,
+    "geo_160_human_fo": 0,
+    "geo_160_human_hint": 0,
+    "geo_160_human_po": 0,
+    "geo_160_human_prior": 0,
+    "geo_20_human_fo": 0,
+    "geo_20_human_po": 0,
+    "objects_158_human_fo": 0,
+    "objects_158_human_hint": 0,
+    "objects_158_human_po": 0,
+    "objects_158_human_prior": 0
+  }
+}

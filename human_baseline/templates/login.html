@@ -80,6 +80,7 @@
                 {% endif %}
                 <label for="email">Your email address</label>
                 <input type="email" name="email" id="email" placeholder="you@example.com"
+                       value="{{ saved_email or '' }}"
                        autofocus autocomplete="email" required>
                 <button type="submit" class="btn">Continue →</button>
             </form>

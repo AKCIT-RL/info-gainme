@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Info-GainME — Game {{ game.id }}</title>
+    <!-- marked.js for markdown rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d1117; color: #c9d1d9; min-height: 100vh; }
@@ -53,6 +55,11 @@
         .status-msg { font-size: 0.9rem; color: #e3b341; margin-bottom: 0.75rem; min-height: 1.2em; display: flex; align-items: center; gap: 0.5rem; }
         .status-msg:empty { display: none; }
 
+        /* Session expired banner */
+        .expired-banner { background: #2d1b1b; border: 1px solid #6e3030; border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 1rem; color: #f0a0a0; font-size: 0.9rem; display: none; }
+        .expired-banner strong { color: #f85149; }
+        .expired-banner a { color: #58a6ff; }
+
         /* Game over overlay */
         .game-over { background: #161b22; border: 2px solid #3fb950; border-radius: 8px; padding: 1.5rem; text-align: center; margin-bottom: 1rem; }
         .game-over.loss { border-color: #f85149; }
@@ -66,15 +73,38 @@
 
         .hidden { display: none; }
 
-        /* Game prompt panel */
+        /* Game prompt panel (collapsible) */
         .prompt-panel { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 1rem; }
-        .prompt-panel summary { font-size: 0.85rem; color: #8b949e; padding: 0.6rem 1rem; cursor: pointer; user-select: none; }
+        .prompt-panel summary { font-size: 0.85rem; color: #8b949e; padding: 0.6rem 1rem; cursor: pointer; user-select: none; list-style: none; display: flex; align-items: center; gap: 0.4rem; }
         .prompt-panel summary:hover { color: #c9d1d9; }
-        .prompt-panel .prompt-body { padding: 0.75rem 1rem 1rem; font-size: 0.8rem; line-height: 1.6; color: #c9d1d9; white-space: pre-wrap; word-break: break-word; border-top: 1px solid #30363d; max-height: 320px; overflow-y: auto; }
+        .prompt-panel summary::before { content: '▶'; font-size: 0.6rem; transition: transform 0.15s; }
+        .prompt-panel[open] summary::before { transform: rotate(90deg); }
+        .prompt-panel .prompt-body { padding: 1rem 1.2rem 1.2rem; border-top: 1px solid #30363d; max-height: 400px; overflow-y: auto; }
+
+        /* Markdown rendered prompt */
+        .prompt-body h1, .prompt-body h2, .prompt-body h3 {
+            color: #58a6ff; margin: 0.9rem 0 0.4rem; font-size: 0.95rem;
+        }
+        .prompt-body h1 { font-size: 1.05rem; }
+        .prompt-body h2 { font-size: 1rem; }
+        .prompt-body p { font-size: 0.85rem; line-height: 1.65; color: #c9d1d9; margin-bottom: 0.5rem; }
+        .prompt-body ul, .prompt-body ol { padding-left: 1.4rem; margin-bottom: 0.5rem; }
+        .prompt-body li { font-size: 0.85rem; line-height: 1.6; color: #c9d1d9; margin-bottom: 0.15rem; }
+        .prompt-body strong { color: #e6edf3; }
+        .prompt-body em { color: #e3b341; font-style: italic; }
+        .prompt-body code { background: #1e2430; color: #79c0ff; padding: 0.1rem 0.35rem; border-radius: 3px; font-size: 0.82rem; font-family: monospace; }
+        .prompt-body hr { border: none; border-top: 1px solid #30363d; margin: 0.75rem 0; }
+        .prompt-body blockquote { border-left: 3px solid #30363d; padding-left: 0.75rem; color: #8b949e; margin: 0.5rem 0; }
     </style>
 </head>
 <body>
     <div class="container">
+        <!-- Session expired banner (shown when server restarted mid-game) -->
+        <div class="expired-banner" id="expired-banner">
+            <strong>⚠ Session expired.</strong> The server restarted and your game session was lost.
+            <a href="/new_game/{{ game.id }}">Start a new game (same config)</a> or <a href="/">change config</a>.
+        </div>
+
         <!-- Header -->
         <div class="header">
             <div class="header-left">
@@ -117,10 +147,10 @@
         </div>
         {% endif %}
 
-        <!-- Game / Seeker prompt (collapsible) -->
+        <!-- Game / Seeker prompt (collapsible, markdown rendered) -->
         <details class="prompt-panel">
             <summary>📋 Game Instructions (Seeker System Prompt)</summary>
-            <div class="prompt-body">{{ seeker_prompt }}</div>
+            <div class="prompt-body" id="prompt-body"></div>
         </details>
 
         <!-- Game over (hidden initially) -->
@@ -162,6 +192,10 @@
         const statusMsg = document.getElementById('status-msg');
         const history = document.getElementById('history');
 
+        // Render seeker prompt as markdown
+        const rawPrompt = {{ seeker_prompt | tojson }};
+        document.getElementById('prompt-body').innerHTML = marked.parse(rawPrompt);
+
         questionInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !isSubmitting) submitQuestion();
         });
@@ -182,6 +216,11 @@
             }
         }
 
+        function showExpiredBanner() {
+            document.getElementById('expired-banner').style.display = 'block';
+            document.getElementById('input-area').classList.add('hidden');
+        }
+
         async function submitQuestion() {
             const q = questionInput.value.trim();
             if (!q || isSubmitting) return;
@@ -198,10 +237,16 @@
                     method: 'POST',
                     body: oracleForm,
                 });
+
+                if (oracleRes.status === 404) {
+                    showExpiredBanner();
+                    return;
+                }
+
                 const oracleData = await oracleRes.json();
 
-                if (oracleData.error) {
-                    alert('Oracle error: ' + oracleData.error);
+                if (!oracleRes.ok || oracleData.error) {
+                    setStatus(`⚠ Oracle error: ${oracleData.error ?? oracleRes.statusText}`);
                     return;
                 }
 
@@ -210,16 +255,22 @@
 
                 // ── Phase 2: Pruner ───────────────────────────────────────
                 const pruneRes = await fetch(`/ask_prune/${gameId}`, { method: 'POST' });
+
+                if (pruneRes.status === 404) {
+                    showExpiredBanner();
+                    return;
+                }
+
                 const data = await pruneRes.json();
 
-                if (data.error) {
-                    alert('Pruner error: ' + data.error);
+                if (!pruneRes.ok || data.error) {
+                    setStatus(`⚠ Pruner error: ${data.error ?? pruneRes.statusText}`);
                     return;
                 }
 
                 // ── Update UI ─────────────────────────────────────────────
                 turnCount = data.turn;
-                totalIG += data.info_gain;
+                totalIG += data.info_gain ?? 0;
 
                 document.getElementById('turn-count').textContent = data.turn;
                 document.getElementById('active-count').textContent = data.active_after;
@@ -231,7 +282,8 @@
                     document.getElementById('cand-count').textContent = data.active_after;
                 }
 
-                const igClass = data.info_gain > 0 ? '' : (data.info_gain === 0 ? 'zero' : 'negative');
+                const ig = data.info_gain ?? 0;
+                const igClass = ig > 0 ? '' : (ig === 0 ? 'zero' : 'negative');
                 const card = document.createElement('div');
                 card.className = 'turn-card';
                 card.innerHTML = `
@@ -241,7 +293,7 @@
                     </div>
                     <div class="turn-q">Q: ${escapeHtml(data.question ?? '')}</div>
                     <div class="turn-a">A: ${escapeHtml(data.oracle_answer ?? '—')}</div>
-                    <div class="turn-ig ${igClass}">IG: ${(data.info_gain ?? 0).toFixed(4)} bits · H: ${(data.h_before ?? 0).toFixed(2)} → ${(data.h_after ?? 0).toFixed(2)}</div>
+                    <div class="turn-ig ${igClass}">IG: ${ig.toFixed(4)} bits · H: ${(data.h_before ?? 0).toFixed(2)} → ${(data.h_after ?? 0).toFixed(2)}</div>
                 `;
                 history.prepend(card);
 
@@ -266,7 +318,7 @@
                 questionInput.value = '';
 
             } catch (err) {
-                alert('Network error: ' + err);
+                setStatus(`⚠ Network error: ${err}`);
             } finally {
                 setLoading(false);
                 questionInput.focus();
