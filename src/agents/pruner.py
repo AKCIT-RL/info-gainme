@@ -103,10 +103,25 @@ class PrunerAgent:
 
         active_labels = {c.label for c in candidate_pool.get_active()}
 
-        keep_labels = {l for l in keep_labels_raw if l in active_labels}
-        unknown = set(keep_labels_raw) - active_labels
-        if unknown:
-            logger.debug("Pruner returned unknown keep_labels (ignored): %s", unknown)
+        # Case-insensitive matching: the LLM may return labels in different casing
+        active_labels_lower = {l.lower(): l for l in active_labels}
+        keep_labels = set()
+        unknown_labels = set()
+        for l in keep_labels_raw:
+            if l in active_labels:
+                keep_labels.add(l)
+            elif l.lower() in active_labels_lower:
+                keep_labels.add(active_labels_lower[l.lower()])
+            else:
+                unknown_labels.add(l)
+        logger.info(
+            "Pruner matching (turn %d): raw_count=%d, matched=%d, unknown=%d",
+            turn_index, len(keep_labels_raw), len(keep_labels), len(unknown_labels),
+        )
+        if unknown_labels:
+            logger.info("Pruner unknown labels (first 5): %s", list(unknown_labels)[:5])
+            # Log first active label for comparison
+            logger.info("Sample active labels (first 5): %s", list(active_labels)[:5])
 
         if not keep_labels:
             logger.warning(

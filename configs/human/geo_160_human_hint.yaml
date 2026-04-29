@@ -1,5 +1,5 @@
-# Human Baseline — Objects (158 items, Partially Observable)
-# Run: python human_benchmark_runner.py --config configs/human/objects_158_human_po.yaml
+# Human Baseline — Geo (160 cities, With Prior)
+# Mode: WP — user is told about the candidate pool but won't see the list during play
 
 models:
   seeker:
@@ -18,13 +18,14 @@ game:
   max_turns: 30
 
 dataset:
-  type: "objects"
-  csv_path: "data/objects/objects_full.csv"
+  type: "geo"
+  csv_path: "data/geo/top_160_pop_cities.csv"
   num_targets: null
   runs_per_target: 1
+  pool_description: "The candidate pool consists of the 160 most populous cities in the world, selected strictly by population rank."
 
 experiment:
-  name: "objects_158_human_po"
+  name: "geo_160_human_hint"
   max_workers: 1
   tags:
     seeker_type: "human"

@@ -7,11 +7,11 @@ models:
 
   oracle:
     model: "Qwen3-8B"
-    timeout: 120.0
+    timeout: 300.0
 
   pruner:
     model: "Qwen3-8B"
-    timeout: 120.0
+    timeout: 300.0
 
 game:
   observability_mode: "PARTIALLY_OBSERVABLE"

@@ -1,5 +1,5 @@
-# Human Baseline — Objects (158 items, Partially Observable)
-# Run: python human_benchmark_runner.py --config configs/human/objects_158_human_po.yaml
+# Human Baseline — Objects (158 objects, With Prior)
+# Mode: WP — user is told about the candidate pool but won't see the list during play
 
 models:
   seeker:
@@ -22,9 +22,10 @@ dataset:
   csv_path: "data/objects/objects_full.csv"
   num_targets: null
   runs_per_target: 1
+  pool_description: "The candidate pool consists of 158 concrete objects from categories including sports, animals, fruits, vehicles, etc."
 
 experiment:
-  name: "objects_158_human_po"
+  name: "objects_158_human_hint"
   max_workers: 1
   tags:
     seeker_type: "human"
