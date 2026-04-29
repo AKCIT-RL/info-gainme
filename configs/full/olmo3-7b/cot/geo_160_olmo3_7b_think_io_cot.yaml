@@ -29,7 +29,7 @@ dataset:
 
 experiment:
   name: "geo_160_olmo3_7b_think_io_cot"
-  max_workers: 24
+  max_workers: 16
   tags: {}
 
 output:

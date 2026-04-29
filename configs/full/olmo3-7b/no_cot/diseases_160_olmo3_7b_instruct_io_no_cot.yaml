@@ -25,7 +25,7 @@ dataset:
 
 experiment:
   name: "diseases_160_olmo3_7b_instruct_io_no_cot"
-  max_workers: 24
+  max_workers: 16
   tags: {}
 
 output:
