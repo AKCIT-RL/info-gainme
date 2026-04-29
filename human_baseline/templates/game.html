@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Info-GainME — Game {{ game.id }}</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d1117; color: #c9d1d9; min-height: 100vh; }
+        .container { max-width: 800px; margin: 0 auto; padding: 1.5rem 1rem; }
+
+        /* Header bar */
+        .header { display: flex; justify-content: space-between; align-items: center; padding: 0.8rem 1rem; background: #161b22; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem; }
+        .header-left { font-weight: 600; color: #58a6ff; }
+        .header-right { font-size: 0.85rem; color: #8b949e; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
+        .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-left: 0.5rem; }
+        .badge-fo { background: #1f6feb33; color: #58a6ff; }
+        .badge-po { background: #da3633aa; color: #f85149; }
+
+        /* Stats bar */
+        .stats { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+        .stat { flex: 1; min-width: 120px; background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 0.8rem; text-align: center; }
+        .stat-value { font-size: 1.4rem; font-weight: 700; color: #58a6ff; }
+        .stat-label { font-size: 0.75rem; color: #8b949e; }
+
+        /* Candidates panel (FO only) */
+        .candidates-panel { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; max-height: 200px; overflow-y: auto; }
+        .candidates-panel h3 { font-size: 0.85rem; color: #8b949e; margin-bottom: 0.5rem; }
+        .candidates-list { font-size: 0.85rem; line-height: 1.6; word-break: break-word; }
+
+        /* Q&A history */
+        .history { margin-bottom: 1rem; }
+        .turn-card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1rem; margin-bottom: 0.5rem; }
+        .turn-header { display: flex; justify-content: space-between; font-size: 0.8rem; color: #8b949e; margin-bottom: 0.5rem; }
+        .turn-q { color: #79c0ff; font-weight: 600; }
+        .turn-a { color: #c9d1d9; margin-top: 0.3rem; }
+        .turn-ig { font-size: 0.8rem; color: #3fb950; margin-top: 0.3rem; }
+        .turn-ig.zero { color: #8b949e; }
+        .turn-ig.negative { color: #f85149; }
+
+        /* Input area */
+        .input-area { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
+        .input-area input { flex: 1; min-width: 200px; padding: 0.7rem; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-size: 1rem; }
+        .input-area input:focus { outline: none; border-color: #58a6ff; }
+        .btn { padding: 0.7rem 1.2rem; background: #238636; color: #fff; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; font-weight: 600; text-decoration: none; display: inline-block; }
+        .btn:hover { background: #2ea043; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-secondary { background: #30363d; }
+        .btn-secondary:hover { background: #484f58; }
+        .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.85rem; }
+
+        /* Status message */
+        .status-msg { font-size: 0.9rem; color: #e3b341; margin-bottom: 0.75rem; min-height: 1.2em; display: flex; align-items: center; gap: 0.5rem; }
+        .status-msg:empty { display: none; }
+
+        /* Game over overlay */
+        .game-over { background: #161b22; border: 2px solid #3fb950; border-radius: 8px; padding: 1.5rem; text-align: center; margin-bottom: 1rem; }
+        .game-over.loss { border-color: #f85149; }
+        .game-over h2 { margin-bottom: 0.5rem; }
+        .game-over .target { font-size: 1.3rem; color: #58a6ff; font-weight: 700; }
+
+        /* Spinner */
+        .spinner { display: none; width: 20px; height: 20px; border: 2px solid #30363d; border-top: 2px solid #58a6ff; border-radius: 50%; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+        @keyframes spin { 100% { transform: rotate(360deg); } }
+        .spinner.active { display: inline-block; }
+
+        .hidden { display: none; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-left">
+                🎯 Info-GainME
+                <span class="badge {{ 'badge-fo' if game.obs_mode.name == 'FULLY_OBSERVABLE' else 'badge-po' }}">
+                    {{ game.obs_mode.name }}
+                </span>
+            </div>
+            <div class="header-right">
+                <span>{{ game.dataset_type }} · {{ game.n_candidates }} candidates · max {{ game.max_turns }} turns</span>
+                <a href="/new_game/{{ game.id }}" class="btn btn-secondary btn-sm">↺ New Game</a>
+            </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-value" id="turn-count">0</div>
+                <div class="stat-label">Turn</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="active-count">{{ active_count }}</div>
+                <div class="stat-label">Active Candidates</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="entropy-value">{{ "%.2f"|format(game.entropy.compute(active_count)) }}</div>
+                <div class="stat-label">Entropy (bits)</div>
+            </div>
+            <div class="stat">
+                <div class="stat-value" id="total-ig">0.00</div>
+                <div class="stat-label">Total IG</div>
+            </div>
+        </div>
+
+        <!-- Candidates panel (FO) -->
+        {% if game.obs_mode.name == 'FULLY_OBSERVABLE' %}
+        <div class="candidates-panel" id="candidates-panel">
+            <h3>Remaining Candidates (<span id="cand-count">{{ active_count }}</span>)</h3>
+            <div class="candidates-list" id="candidates-list">{{ candidates_text }}</div>
+        </div>
+        {% endif %}
+
+        <!-- Game over (hidden initially) -->
+        <div class="game-over hidden" id="game-over-panel">
+            <h2 id="game-over-title">🎉 Target Found!</h2>
+            <p>The target was: <span class="target" id="game-over-target"></span></p>
+            <p style="margin-top: 0.5rem; color: #8b949e;" id="game-over-stats"></p>
+            <div style="margin-top: 1rem; display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
+                <a href="/new_game/{{ game.id }}" class="btn">↺ New Game (same config)</a>
+                <a href="/" class="btn btn-secondary">⚙ Change Config</a>
+            </div>
+        </div>
+
+        <!-- Status message (shows during LLM calls) -->
+        <div class="status-msg" id="status-msg"></div>
+
+        <!-- Input area -->
+        <div class="input-area" id="input-area">
+            <input type="text" id="question-input" placeholder="Ask a yes/no question or guess the target..."
+                   autofocus autocomplete="off">
+            <button class="btn" id="ask-btn" onclick="submitQuestion()">Ask</button>
+            <div class="spinner" id="spinner"></div>
+        </div>
+
+        <!-- Q&A History -->
+        <div class="history" id="history"></div>
+    </div>
+
+    <script>
+        const gameId = "{{ game.id }}";
+        const obsMode = "{{ game.obs_mode.name }}";
+        let totalIG = 0;
+        let turnCount = 0;
+        let isSubmitting = false;
+
+        const questionInput = document.getElementById('question-input');
+        const askBtn = document.getElementById('ask-btn');
+        const spinner = document.getElementById('spinner');
+        const statusMsg = document.getElementById('status-msg');
+        const history = document.getElementById('history');
+
+        questionInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !isSubmitting) submitQuestion();
+        });
+
+        function setStatus(msg) {
+            statusMsg.textContent = msg;
+        }
+
+        function setLoading(loading) {
+            isSubmitting = loading;
+            askBtn.disabled = loading;
+            questionInput.disabled = loading;
+            if (loading) {
+                spinner.classList.add('active');
+            } else {
+                spinner.classList.remove('active');
+                setStatus('');
+            }
+        }
+
+        async function submitQuestion() {
+            const q = questionInput.value.trim();
+            if (!q || isSubmitting) return;
+
+            setLoading(true);
+            setStatus('Oracle is answering…');
+
+            try {
+                // ── Phase 1: Oracle ───────────────────────────────────────
+                const oracleForm = new FormData();
+                oracleForm.append('question', q);
+
+                const oracleRes = await fetch(`/ask_oracle/${gameId}`, {
+                    method: 'POST',
+                    body: oracleForm,
+                });
+                const oracleData = await oracleRes.json();
+
+                if (oracleData.error) {
+                    alert('Oracle error: ' + oracleData.error);
+                    return;
+                }
+
+                // Show intermediate state — user knows oracle is done, pruner running
+                setStatus(`Oracle answered: ${oracleData.oracle_answer}. Pruner is analyzing candidates…`);
+
+                // ── Phase 2: Pruner ───────────────────────────────────────
+                const pruneRes = await fetch(`/ask_prune/${gameId}`, { method: 'POST' });
+                const data = await pruneRes.json();
+
+                if (data.error) {
+                    alert('Pruner error: ' + data.error);
+                    return;
+                }
+
+                // ── Update UI ─────────────────────────────────────────────
+                turnCount = data.turn;
+                totalIG += data.info_gain;
+
+                document.getElementById('turn-count').textContent = data.turn;
+                document.getElementById('active-count').textContent = data.active_after;
+                document.getElementById('entropy-value').textContent = data.h_after.toFixed(2);
+                document.getElementById('total-ig').textContent = totalIG.toFixed(2);
+
+                if (obsMode === 'FULLY_OBSERVABLE') {
+                    document.getElementById('candidates-list').textContent = data.candidates_text;
+                    document.getElementById('cand-count').textContent = data.active_after;
+                }
+
+                const igClass = data.info_gain > 0 ? '' : (data.info_gain === 0 ? 'zero' : 'negative');
+                const card = document.createElement('div');
+                card.className = 'turn-card';
+                card.innerHTML = `
+                    <div class="turn-header">
+                        <span>Turn ${data.turn}/${data.max_turns}</span>
+                        <span>${data.active_before} → ${data.active_after} candidates</span>
+                    </div>
+                    <div class="turn-q">Q: ${escapeHtml(data.question)}</div>
+                    <div class="turn-a">A: ${escapeHtml(data.oracle_answer)}</div>
+                    <div class="turn-ig ${igClass}">IG: ${data.info_gain.toFixed(4)} bits · H: ${data.h_before.toFixed(2)} → ${data.h_after.toFixed(2)}</div>
+                `;
+                history.prepend(card);
+
+                // ── Game over ─────────────────────────────────────────────
+                if (data.game_over) {
+                    document.getElementById('input-area').classList.add('hidden');
+                    const panel = document.getElementById('game-over-panel');
+                    panel.classList.remove('hidden');
+                    document.getElementById('game-over-target').textContent = data.target_label;
+
+                    if (data.win) {
+                        panel.classList.remove('loss');
+                        document.getElementById('game-over-title').textContent = '🎉 Target Found!';
+                    } else {
+                        panel.classList.add('loss');
+                        document.getElementById('game-over-title').textContent = '❌ Out of Turns';
+                    }
+                    document.getElementById('game-over-stats').textContent =
+                        `${data.turn} turns · Total IG: ${totalIG.toFixed(2)} bits · Avg IG/turn: ${(totalIG / data.turn).toFixed(4)}`;
+                }
+
+                questionInput.value = '';
+
+            } catch (err) {
+                alert('Network error: ' + err);
+            } finally {
+                setLoading(false);
+                questionInput.focus();
+            }
+        }
+
+        function escapeHtml(text) {
+            const d = document.createElement('div');
+            d.textContent = text;
+            return d.innerHTML;
+        }
+    </script>
+</body>
+</html>

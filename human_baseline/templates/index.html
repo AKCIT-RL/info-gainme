@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Info-GainME — Human Baseline</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d1117; color: #c9d1d9; min-height: 100vh; }
+        .container { max-width: 700px; margin: 0 auto; padding: 2rem 1rem; }
+        h1 { text-align: center; color: #58a6ff; margin-bottom: 0.5rem; }
+        .subtitle { text-align: center; color: #8b949e; margin-bottom: 2rem; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 1.5rem; margin-bottom: 1rem; }
+        label { display: block; color: #8b949e; font-size: 0.85rem; margin-bottom: 0.3rem; }
+        select, input[type=text], input[type=number] { width: 100%; padding: 0.6rem; background: #0d1117; border: 1px solid #30363d; border-radius: 6px; color: #c9d1d9; font-size: 1rem; }
+        select:focus, input:focus { outline: none; border-color: #58a6ff; }
+        .config-desc { font-size: 0.8rem; color: #8b949e; margin-top: 0.3rem; }
+        .btn { display: inline-block; padding: 0.7rem 1.5rem; background: #238636; color: #fff; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; font-weight: 600; transition: background 0.2s; }
+        .btn:hover { background: #2ea043; }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+        .center { text-align: center; margin-top: 1rem; }
+
+        /* Session expired notice */
+        .notice { background: #2d1b1b; border: 1px solid #6e3030; border-radius: 8px; padding: 1rem 1.5rem; margin-bottom: 1.5rem; color: #f0a0a0; font-size: 0.9rem; }
+        .notice strong { color: #f85149; }
+
+        /* Debug tip */
+        .debug-tip { background: #1a1f2a; border: 1px solid #30363d; border-radius: 6px; padding: 0.75rem 1rem; margin-top: 0.5rem; font-size: 0.8rem; color: #8b949e; }
+        .debug-tip code { background: #0d1117; padding: 0.1rem 0.3rem; border-radius: 3px; color: #79c0ff; font-family: monospace; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Info-GainME</h1>
+        <p class="subtitle">Human Baseline Collection</p>
+
+        {% if request.args.get('_anchor') == 'session-expired' or request.url_rule and request.args.get('session-expired') %}
+        <div class="notice">
+            <strong>Session expired or not found.</strong>
+            The game session is no longer in memory (server may have restarted). Start a new game below.
+        </div>
+        {% endif %}
+
+        <form action="/start" method="POST">
+            <div class="card">
+                <label for="config">Experiment Configuration</label>
+                <select name="config" id="config">
+                    {% for key, path in configs.items() %}
+                    <option value="{{ key }}" {% if key == preselect_config %}selected{% endif %}>{{ key }}</option>
+                    {% endfor %}
+                </select>
+                <p class="config-desc">
+                    Format: <code>{domain}_{size}_human_{mode}</code> — FO = see candidates, PO = blind
+                </p>
+            </div>
+
+            <div class="card">
+                <label for="seed">Random Seed (optional)</label>
+                <input type="number" name="seed" id="seed"
+                       placeholder="Leave empty for random target"
+                       value="{{ preselect_seed }}">
+                <div class="debug-tip">
+                    <strong>Debug shortcuts:</strong><br>
+                    Pre-fill this form: <code>/?config=geo_20_human_fo&seed=42</code><br>
+                    Skip form entirely: <code>/game_create?config=geo_20_human_fo&seed=42</code>
+                </div>
+            </div>
+
+            <div class="center">
+                <button type="submit" class="btn">▶ Start Game</button>
+            </div>
+        </form>
+    </div>
+</body>
+</html>

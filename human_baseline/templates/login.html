@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Info-GainME — Login</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background: #0d1117;
+            color: #c9d1d9;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .container { max-width: 420px; width: 100%; padding: 1.5rem; }
+        h1 { text-align: center; color: #58a6ff; font-size: 2rem; margin-bottom: 0.4rem; }
+        .subtitle { text-align: center; color: #8b949e; margin-bottom: 2rem; font-size: 0.95rem; }
+        .card {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 2rem;
+        }
+        label { display: block; color: #8b949e; font-size: 0.85rem; margin-bottom: 0.4rem; }
+        input[type=email] {
+            width: 100%;
+            padding: 0.75rem;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #c9d1d9;
+            font-size: 1rem;
+            margin-bottom: 1rem;
+            transition: border-color 0.2s;
+        }
+        input[type=email]:focus { outline: none; border-color: #58a6ff; }
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 0.75rem;
+            background: #238636;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            cursor: pointer;
+            font-weight: 600;
+            transition: background 0.2s;
+        }
+        .btn:hover { background: #2ea043; }
+        .error {
+            color: #f85149;
+            font-size: 0.85rem;
+            margin-bottom: 0.75rem;
+            padding: 0.5rem;
+            background: #2d1a1e;
+            border-radius: 4px;
+            border: 1px solid #f8514933;
+        }
+        .note {
+            text-align: center;
+            font-size: 0.8rem;
+            color: #8b949e;
+            margin-top: 1.2rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎯 Info-GainME</h1>
+        <p class="subtitle">Human Baseline Collection</p>
+
+        <div class="card">
+            <form action="{{ url_for('login') }}" method="POST">
+                {% if error %}
+                <div class="error">{{ error }}</div>
+                {% endif %}
+                <label for="email">Your email address</label>
+                <input type="email" name="email" id="email" placeholder="you@example.com"
+                       autofocus autocomplete="email" required>
+                <button type="submit" class="btn">Continue →</button>
+            </form>
+        </div>
+
+        <p class="note">
+            Your email is only used to identify your contributions.<br>
+            You'll be assigned a game automatically.
+        </p>
+    </div>
+</body>
+</html>
