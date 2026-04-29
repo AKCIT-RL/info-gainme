@@ -3,7 +3,7 @@
 **Status:** Active  
 **Path:** `human_baseline/web_app.py`  
 **Port:** `5055` (default)  
-**Started:** `nohup .venv/bin/python human_baseline/web_app.py --port 5055 --ollama-url http://localhost:11435/v1 --ollama-model qwen3:4b &`
+**Started:** `nohup .venv/bin/python human_baseline/web_app.py --port 5055 --ollama-url http://localhost:11435/v1 &`
 
 ---
 
