@@ -7,10 +7,15 @@ with the human providing questions via a web browser instead of CLI stdin.
 Oracle and Pruner are LLM-powered (same agents as the automated benchmark).
 Results are saved in the standard outputs/ structure for the analysis pipeline.
 
+Participant flow:
+  /login          — enter email, auto-assigned a config (balanced distribution)
+  /               — config picker (for researchers/debug; login-aware)
+  /game_create?config=<key>&seed=N  — skip form (debug)
+  /new_game/<game_id>               — restart with same config (+ optional &seed=N)
+
 URL params (debug / direct linking):
   /?config=<key>&seed=<int>         — pre-fill the start form
   /game_create?config=<key>&seed=N  — create + redirect directly (skip form)
-  /new_game/<game_id>               — restart with same config (+ optional &seed=N)
 """
 
 import copy
@@ -25,7 +30,8 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
-from flask import Flask, render_template, request, jsonify, redirect, url_for
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # ── Project imports (resolve from repo root) ──────────────────────────────
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -42,6 +48,7 @@ from src.domain.types import DomainConfig, GEO_DOMAIN, OBJECTS_DOMAIN, DISEASES_
 from src.domain.geo.loader import load_geo_candidates
 from src.domain.objects import load_flat_object_candidates
 from src.domain.diseases import load_flat_disease_candidates
+from src.prompts import get_seeker_system_prompt
 from src.utils.config_loader import load_benchmark_config
 
 # ── Logging ───────────────────────────────────────────────────────────────
@@ -57,6 +64,9 @@ logger = logging.getLogger(__name__)
 
 # ── Flask app ─────────────────────────────────────────────────────────────
 app = Flask(__name__)
+# Honor X-Forwarded-Prefix from Caddy so url_for() generates correct paths
+# under /infogainme/ when accessed through the Tailscale Funnel.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
 app.secret_key = os.urandom(24)
 
 # ── Configuration ─────────────────────────────────────────────────────────
@@ -71,6 +81,87 @@ configs_dir = PROJECT_ROOT / "configs" / "human"
 if configs_dir.exists():
     for f in sorted(configs_dir.glob("*.yaml")):
         AVAILABLE_CONFIGS[f.stem] = str(f.relative_to(PROJECT_ROOT))
+
+# ── Participant tracking ─────────────────────────────────────────────────
+# Persisted to disk so participants survive server restarts.
+PARTICIPANTS_FILE = PROJECT_ROOT / "human_baseline" / "participants.json"
+PARTICIPANTS_LOCK = threading.Lock()
+
+# Configs eligible for auto-assignment (all human configs, sorted for determinism)
+AUTO_ASSIGN_CONFIGS = sorted(AVAILABLE_CONFIGS.keys())
+
+
+def _load_participants() -> dict:
+    """Load participant registry from disk. Returns {} on first run."""
+    if PARTICIPANTS_FILE.exists():
+        try:
+            return json.loads(PARTICIPANTS_FILE.read_text())
+        except Exception:
+            pass
+    return {}
+
+
+def _save_participants(data: dict) -> None:
+    """Persist participant registry to disk (atomic-ish write)."""
+    PARTICIPANTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    tmp = PARTICIPANTS_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False))
+    tmp.replace(PARTICIPANTS_FILE)
+
+
+def assign_config_for_participant(email: str) -> str:
+    """Assign a config key to a participant, balancing across all auto-assign configs.
+
+    - If this email was seen before: return the same config they got last time.
+    - Otherwise: pick the config with fewest assignments so far (round-robin).
+    """
+    with PARTICIPANTS_LOCK:
+        data = _load_participants()
+        participants = data.get("participants", {})
+
+        email_lower = email.strip().lower()
+        if email_lower in participants:
+            # Returning participant — give them the same config
+            return participants[email_lower]["config"]
+
+        # New participant — pick least-assigned config
+        counts = data.get("config_counts", {k: 0 for k in AUTO_ASSIGN_CONFIGS})
+        # Make sure all keys exist (handles new configs added later)
+        for k in AUTO_ASSIGN_CONFIGS:
+            counts.setdefault(k, 0)
+
+        # Pick config with lowest count; break ties by sorted order (deterministic)
+        assigned = min(AUTO_ASSIGN_CONFIGS, key=lambda k: (counts.get(k, 0), k))
+
+        # Record participant
+        counts[assigned] = counts.get(assigned, 0) + 1
+        participants[email_lower] = {
+            "email": email.strip(),
+            "config": assigned,
+            "assigned_at": datetime.now().isoformat(),
+            "games": 0,
+        }
+        data["participants"] = participants
+        data["config_counts"] = counts
+        _save_participants(data)
+
+        logger.info("New participant: %s → config=%s", email_lower, assigned)
+        return assigned
+
+
+def record_game_for_participant(email: str) -> None:
+    """Increment the games counter for a returning participant."""
+    if not email:
+        return
+    with PARTICIPANTS_LOCK:
+        data = _load_participants()
+        participants = data.get("participants", {})
+        email_lower = email.strip().lower()
+        if email_lower in participants:
+            participants[email_lower]["games"] = participants[email_lower].get("games", 0) + 1
+            data["participants"] = participants
+            _save_participants(data)
+
 
 # ── In-memory game storage ────────────────────────────────────────────────
 GAMES: dict[str, "GameSession"] = {}
@@ -98,6 +189,7 @@ class GameSession:
         config_key: str,
         benchmark_config,
         dataset_type: str,
+        participant_email: str = "",
     ):
         self.id = str(uuid.uuid4())[:8]
         self.pool = pool
@@ -111,6 +203,7 @@ class GameSession:
         self.config_key = config_key
         self.benchmark_config = benchmark_config
         self.dataset_type = dataset_type
+        self.participant_email = participant_email
         self.turns: list[TurnState] = []
         self.current_turn = 0
         self.game_over = False
@@ -143,7 +236,7 @@ def _load_dataset(config: dict) -> tuple[CandidatePool, str]:
     return pool, dataset_type
 
 
-def create_game(config_key: str, seed: int | None = None) -> GameSession:
+def create_game(config_key: str, seed: int | None = None, participant_email: str = "") -> GameSession:
     """Create a new game session using the project's standard config pipeline.
 
     Only the LLM endpoint is changed to local Ollama. Everything else
@@ -201,6 +294,7 @@ def create_game(config_key: str, seed: int | None = None) -> GameSession:
         config_key=config_key,
         benchmark_config=benchmark_config,
         dataset_type=dataset_type,
+        participant_email=participant_email,
     )
 
     logger.info(
@@ -249,6 +343,7 @@ def export_game(game: GameSession) -> Path:
     metadata = {
         "game_id": game.id,
         "timestamp": game.created_at.isoformat(),
+        "participant_email": game.participant_email or None,
         "target": {
             "id": game.target.id,
             "label": game.target.label,
@@ -396,16 +491,65 @@ def _game_summary(game: GameSession) -> dict:
 # ── Routes ────────────────────────────────────────────────────────────────
 
 
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    """Participant login page — accept email, auto-assign config, start game.
+
+    GET:  Show login form.
+    POST: Validate email, assign config (balanced), create game, redirect to game.
+    """
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip()
+        if not email or "@" not in email:
+            return render_template("login.html", error="Please enter a valid email address.")
+
+        # Assign config (balanced) — same config returned for returning participants
+        config_key = assign_config_for_participant(email)
+        if config_key not in AVAILABLE_CONFIGS:
+            # Fallback if config was removed since participant registered
+            config_key = next(iter(AVAILABLE_CONFIGS))
+
+        # Store email in Flask session
+        session["participant_email"] = email
+        session["participant_config"] = config_key
+
+        # Create game directly (no form step for participants)
+        try:
+            game = create_game(config_key, participant_email=email)
+        except Exception as e:
+            logger.error("Failed to create game for %s (config=%s): %s", email, config_key, e)
+            return render_template("login.html", error=f"Failed to start game: {e}")
+
+        with GAMES_LOCK:
+            GAMES[game.id] = game
+
+        record_game_for_participant(email)
+        logger.info("Participant %s assigned config=%s, game=%s", email, config_key, game.id)
+        return redirect(url_for("game_page", game_id=game.id))
+
+    # GET — show login form
+    return render_template("login.html", error=None)
+
+
 @app.route("/")
 def index():
     """Landing page — pick a config and start a game.
 
+    Participants (no explicit config param) are redirected to /login for
+    auto-assignment.  Researchers with explicit ?config= or ?seed= params
+    go directly to the form (debug / researcher mode).
+
     Optional URL params to pre-fill form:
-      ?config=geo_160_human_fo   — pre-select a config
+      ?config=geo_160_human_fo   — pre-select a config (researcher mode)
       ?seed=42                   — pre-fill seed
     """
     preselect_config = request.args.get("config", "")
     preselect_seed = request.args.get("seed", "")
+
+    # If no explicit config override — redirect participants to login
+    if not preselect_config and not preselect_seed:
+        return redirect(url_for("login"))
+
     return render_template(
         "index.html",
         configs=AVAILABLE_CONFIGS,
@@ -438,7 +582,7 @@ def game_create():
     seed = request.args.get("seed")
     seed = int(seed) if seed and seed.strip().lstrip("-").isdigit() else None
 
-    game = create_game(config_key, seed=seed)
+    game = create_game(config_key, seed=seed, participant_email=session.get("participant_email", ""))
     with GAMES_LOCK:
         GAMES[game.id] = game
 
@@ -447,7 +591,7 @@ def game_create():
 
 @app.route("/start", methods=["POST"])
 def start():
-    """Create a new game and redirect to the game page."""
+    """Create a new game and redirect to the game page (researcher/form flow)."""
     config_key = request.form.get("config")
     if config_key not in AVAILABLE_CONFIGS:
         return "Invalid config", 400
@@ -455,10 +599,15 @@ def start():
     seed = request.form.get("seed")
     seed = int(seed) if seed and seed.strip() else None
 
-    game = create_game(config_key, seed=seed)
+    # Carry participant email from session if present
+    email = session.get("participant_email", "")
+    game = create_game(config_key, seed=seed, participant_email=email)
 
     with GAMES_LOCK:
         GAMES[game.id] = game
+
+    if email:
+        record_game_for_participant(email)
 
     return redirect(url_for("game_page", game_id=game.id))
 
@@ -479,9 +628,14 @@ def new_game(game_id):
     seed = request.args.get("seed")
     seed = int(seed) if seed and seed.strip().lstrip("-").isdigit() else None
 
-    game = create_game(config_key, seed=seed)
+    # Carry participant email from session or from old game
+    email = session.get("participant_email", "") or (old_game.participant_email if old_game else "")
+    game = create_game(config_key, seed=seed, participant_email=email)
     with GAMES_LOCK:
         GAMES[game.id] = game
+
+    if email:
+        record_game_for_participant(email)
 
     return redirect(url_for("game_page", game_id=game.id))
 
@@ -497,11 +651,20 @@ def game_page(game_id):
     active = game.pool.get_active()
     candidates_text = ", ".join(c.label for c in sorted(active, key=lambda c: c.label))
 
+    seeker_prompt = get_seeker_system_prompt(
+        target_noun=game.domain_config.target_noun,
+        domain_description=game.domain_config.domain_description,
+        max_turns=game.max_turns,
+        observability_mode=game.obs_mode.value,
+        pool_description=game.domain_config.seeker_pool_description,
+    )
+
     return render_template(
         "game.html",
         game=game,
         candidates_text=candidates_text,
         active_count=len(active),
+        seeker_prompt=seeker_prompt,
     )
 
 
@@ -837,6 +1000,7 @@ def status(game_id):
     return jsonify({
         "game_id": game.id,
         "config": game.config_key,
+        "participant_email": game.participant_email or None,
         "turn": game.current_turn,
         "max_turns": game.max_turns,
         "active_candidates": len(active),
@@ -853,6 +1017,32 @@ def status(game_id):
                 "active_after": t.active_candidates_after,
             }
             for t in game.turns
+        ],
+    })
+
+
+@app.route("/participants")
+def participants_admin():
+    """Admin view: list all registered participants and their config assignments.
+
+    Returns JSON with participant list, config counts, and assignment balance.
+    For researcher use only — not linked from participant UI.
+    """
+    with PARTICIPANTS_LOCK:
+        data = _load_participants()
+    participants = data.get("participants", {})
+    counts = data.get("config_counts", {})
+    return jsonify({
+        "total_participants": len(participants),
+        "config_counts": counts,
+        "participants": [
+            {
+                "email": v["email"],
+                "config": v["config"],
+                "assigned_at": v["assigned_at"],
+                "games": v.get("games", 0),
+            }
+            for v in sorted(participants.values(), key=lambda x: x["assigned_at"], reverse=True)
         ],
     })
 

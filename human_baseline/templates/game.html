@@ -65,6 +65,12 @@
         .spinner.active { display: inline-block; }
 
         .hidden { display: none; }
+
+        /* Game prompt panel */
+        .prompt-panel { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 1rem; }
+        .prompt-panel summary { font-size: 0.85rem; color: #8b949e; padding: 0.6rem 1rem; cursor: pointer; user-select: none; }
+        .prompt-panel summary:hover { color: #c9d1d9; }
+        .prompt-panel .prompt-body { padding: 0.75rem 1rem 1rem; font-size: 0.8rem; line-height: 1.6; color: #c9d1d9; white-space: pre-wrap; word-break: break-word; border-top: 1px solid #30363d; max-height: 320px; overflow-y: auto; }
     </style>
 </head>
 <body>
@@ -110,6 +116,12 @@
             <div class="candidates-list" id="candidates-list">{{ candidates_text }}</div>
         </div>
         {% endif %}
+
+        <!-- Game / Seeker prompt (collapsible) -->
+        <details class="prompt-panel">
+            <summary>📋 Game Instructions (Seeker System Prompt)</summary>
+            <div class="prompt-body">{{ seeker_prompt }}</div>
+        </details>
 
         <!-- Game over (hidden initially) -->
         <div class="game-over hidden" id="game-over-panel">
@@ -194,7 +206,7 @@
                 }
 
                 // Show intermediate state — user knows oracle is done, pruner running
-                setStatus(`Oracle answered: ${oracleData.oracle_answer}. Pruner is analyzing candidates…`);
+                setStatus(`Oracle answered: ${oracleData.oracle_answer ?? '(no answer)'}. Pruner is analyzing candidates…`);
 
                 // ── Phase 2: Pruner ───────────────────────────────────────
                 const pruneRes = await fetch(`/ask_prune/${gameId}`, { method: 'POST' });
@@ -211,7 +223,7 @@
 
                 document.getElementById('turn-count').textContent = data.turn;
                 document.getElementById('active-count').textContent = data.active_after;
-                document.getElementById('entropy-value').textContent = data.h_after.toFixed(2);
+                document.getElementById('entropy-value').textContent = (data.h_after ?? 0).toFixed(2);
                 document.getElementById('total-ig').textContent = totalIG.toFixed(2);
 
                 if (obsMode === 'FULLY_OBSERVABLE') {
@@ -227,9 +239,9 @@
                         <span>Turn ${data.turn}/${data.max_turns}</span>
                         <span>${data.active_before} → ${data.active_after} candidates</span>
                     </div>
-                    <div class="turn-q">Q: ${escapeHtml(data.question)}</div>
-                    <div class="turn-a">A: ${escapeHtml(data.oracle_answer)}</div>
-                    <div class="turn-ig ${igClass}">IG: ${data.info_gain.toFixed(4)} bits · H: ${data.h_before.toFixed(2)} → ${data.h_after.toFixed(2)}</div>
+                    <div class="turn-q">Q: ${escapeHtml(data.question ?? '')}</div>
+                    <div class="turn-a">A: ${escapeHtml(data.oracle_answer ?? '—')}</div>
+                    <div class="turn-ig ${igClass}">IG: ${(data.info_gain ?? 0).toFixed(4)} bits · H: ${(data.h_before ?? 0).toFixed(2)} → ${(data.h_after ?? 0).toFixed(2)}</div>
                 `;
                 history.prepend(card);
 
@@ -248,7 +260,7 @@
                         document.getElementById('game-over-title').textContent = '❌ Out of Turns';
                     }
                     document.getElementById('game-over-stats').textContent =
-                        `${data.turn} turns · Total IG: ${totalIG.toFixed(2)} bits · Avg IG/turn: ${(totalIG / data.turn).toFixed(4)}`;
+                        `${data.turn} turns · Total IG: ${totalIG.toFixed(2)} bits · Avg IG/turn: ${(data.turn > 0 ? totalIG / data.turn : 0).toFixed(4)}`;
                 }
 
                 questionInput.value = '';
