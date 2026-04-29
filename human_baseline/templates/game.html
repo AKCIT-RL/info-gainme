@@ -102,7 +102,7 @@
         <!-- Session expired banner (shown when server restarted mid-game) -->
         <div class="expired-banner" id="expired-banner">
             <strong>⚠ Session expired.</strong> The server restarted and your game session was lost.
-            <a href="/new_game/{{ game.id }}">Start a new game (same config)</a> or <a href="/">change config</a>.
+            <a href="{{ url_for('new_game', game_id=game.id) }}">Start a new game (same config)</a> or <a href="{{ url_for('index') }}">change config</a>.
         </div>
 
         <!-- Header -->
@@ -115,7 +115,7 @@
             </div>
             <div class="header-right">
                 <span>{{ game.dataset_type }} · {{ game.n_candidates }} candidates · max {{ game.max_turns }} turns</span>
-                <a href="/new_game/{{ game.id }}" class="btn btn-secondary btn-sm">↺ New Game</a>
+                <a href="{{ url_for('new_game', game_id=game.id) }}" class="btn btn-secondary btn-sm">↺ New Game</a>
             </div>
         </div>
 
@@ -159,8 +159,8 @@
             <p>The target was: <span class="target" id="game-over-target"></span></p>
             <p style="margin-top: 0.5rem; color: #8b949e;" id="game-over-stats"></p>
             <div style="margin-top: 1rem; display: flex; gap: 0.75rem; justify-content: center; flex-wrap: wrap;">
-                <a href="/new_game/{{ game.id }}" class="btn">↺ New Game (same config)</a>
-                <a href="/" class="btn btn-secondary">⚙ Change Config</a>
+                <a href="{{ url_for('new_game', game_id=game.id) }}" class="btn">↺ New Game (same config)</a>
+                <a href="{{ url_for('index') }}" class="btn btn-secondary">⚙ Change Config</a>
             </div>
         </div>
 
@@ -182,6 +182,8 @@
     <script>
         const gameId = "{{ game.id }}";
         const obsMode = "{{ game.obs_mode.name }}";
+        const askOracleUrl = "{{ url_for('ask_oracle', game_id=game.id) }}";
+        const askPruneUrl = "{{ url_for('ask_prune', game_id=game.id) }}";
         let totalIG = 0;
         let turnCount = 0;
         let isSubmitting = false;
@@ -233,7 +235,7 @@
                 const oracleForm = new FormData();
                 oracleForm.append('question', q);
 
-                const oracleRes = await fetch(`/ask_oracle/${gameId}`, {
+                const oracleRes = await fetch(askOracleUrl, {
                     method: 'POST',
                     body: oracleForm,
                 });
@@ -254,7 +256,7 @@
                 setStatus(`Oracle answered: ${oracleData.oracle_answer ?? '(no answer)'}. Pruner is analyzing candidates…`);
 
                 // ── Phase 2: Pruner ───────────────────────────────────────
-                const pruneRes = await fetch(`/ask_prune/${gameId}`, { method: 'POST' });
+                const pruneRes = await fetch(askPruneUrl, { method: 'POST' });
 
                 if (pruneRes.status === 404) {
                     showExpiredBanner();

@@ -66,7 +66,7 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 # Honor X-Forwarded-Prefix from Caddy so url_for() generates correct paths
 # under /infogainme/ when accessed through the Tailscale Funnel.
-app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_prefix=1)
 app.secret_key = os.urandom(24)
 
 # ── Configuration ─────────────────────────────────────────────────────────

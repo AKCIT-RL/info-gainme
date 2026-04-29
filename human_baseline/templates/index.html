@@ -41,7 +41,7 @@
         </div>
         {% endif %}
 
-        <form action="/start" method="POST">
+        <form action="{{ url_for('start') }}" method="POST">
             <div class="card">
                 <label for="config">Experiment Configuration</label>
                 <select name="config" id="config">
