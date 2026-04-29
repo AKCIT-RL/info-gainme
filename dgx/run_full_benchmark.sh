@@ -106,8 +106,11 @@ elif [ "${MODE}" = "dual" ]; then
     MODEL1_GPU=${GPU_ARRAY[0]}
     MODEL2_GPU=${GPU_ARRAY[1]}
     echo "  → Dual model: seeker on GPU ${MODEL1_GPU}, oracle/pruner on GPU ${MODEL2_GPU}"
+elif [ "${MODE}" = "seeker_only" ]; then
+    MODEL1_GPU=${GPU_ARRAY[0]}
+    echo "  → Seeker-only: seeker on GPU ${MODEL1_GPU}, oracle/pruner from servers.yaml (${MODEL2_NAME})"
 else
-    echo "ERROR: MODE must be 'single' or 'dual', got: ${MODE}"
+    echo "ERROR: MODE must be 'single', 'dual', or 'seeker_only', got: ${MODE}"
     exit 1
 fi
 
@@ -214,11 +217,15 @@ if [ "${MODE}" = "dual" ]; then
     PID2=$(start_vllm_server "${MODEL2}" "${MODEL2_NAME}" ${MODEL2_PORT} ${MODEL2_GPU} ${MODEL2_GPU_MEM} ${MODEL2_MAX_LEN} "${LOGS_DIR_HOST}/info-gainme-full-${SLURM_JOB_ID}-vllm-${MODEL2_NAME}.log" "${MODEL2_REASONING_PARSER}")
     wait_vllm_ready ${PID2} ${MODEL2_PORT} "${MODEL2_NAME}" "${VLLM_READY_TIMEOUT:-1800}"
     echo ""
-else
+elif [ "${MODE}" = "single" ]; then
     # Single mode: use MODEL1 for all agents
     MODEL2_NAME="${MODEL1_NAME}"
     MODEL2_PORT=${MODEL1_PORT}
     echo "(Single mode: using ${MODEL1_NAME} for all agents)"
+    echo ""
+else
+    # seeker_only: MODEL2 served externally via servers.yaml — don't start a local vLLM
+    echo "(Seeker-only: oracle/pruner endpoint resolved from servers.yaml for ${MODEL2_NAME})"
     echo ""
 fi
 
@@ -231,6 +238,12 @@ if [ "${MODE}" = "dual" ]; then
 servers:
   ${MODEL1_NAME}: http://${NODE_IP}:${MODEL1_PORT}/v1
   ${MODEL2_NAME}: http://${NODE_IP}:${MODEL2_PORT}/v1
+EOF
+elif [ "${MODE}" = "seeker_only" ]; then
+    # Only override the seeker; oracle/pruner (MODEL2) resolved from servers.yaml
+    cat > "${SERVERS_OVERRIDE}" <<EOF
+servers:
+  ${MODEL1_NAME}: http://${NODE_IP}:${MODEL1_PORT}/v1
 EOF
 else
     # Single mode: only one server, write MODEL1_NAME only to avoid duplicate key
