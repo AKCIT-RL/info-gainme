@@ -27,7 +27,7 @@ servers:
   # Quando o judge-eval SLURM próprio sobe (dgx/run_judge_eval.sh), ele escreve
   # o endpoint efêmero em .servers_override_<JOBID>.yaml e sobrescreve este.
   gpt-oss-120b: "http://10.100.0.112:8836/v1"           # openai/gpt-oss-120b (api-key vllm_ceia_100)
-  google/gemma-4-31B-it: "http://10.100.0.112:8226/v1"  # gemma-4-31B-it     (api-key vllm_ceia_100)
+  google/gemma-4-31B-it: "http://10.100.0.121:8222/v1"  # gemma-4-31B-it on B200-1 (api-key vllm_ceia_100)
   MiniMaxAI/MiniMax-M2.7: "http://10.100.0.111:8060/v1" # MiniMax M2.7 (180k ctx, sem auth)
 
   # Qwen3-235B-FP8: agora roda no B200-2 (mudou de host; era 10.100.0.111:8026).

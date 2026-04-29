@@ -67,7 +67,7 @@ def load_benchmark_config(config_path: Path, api_key: str, servers_override_path
         # Extract extra parameters (all non-standard parameters)
         extra_params = {}
         standard_params = {
-            "model", "base_url", "timeout", "temperature",
+            "model", "base_url", "api_key", "timeout", "temperature",
             "max_tokens", "use_reasoning", "user", "response_format"
         }
 
@@ -80,7 +80,7 @@ def load_benchmark_config(config_path: Path, api_key: str, servers_override_path
 
         return LLMConfig(
             model=model_name,
-            api_key=api_key,
+            api_key=model_config.get("api_key", api_key),
             base_url=base_url,
             timeout=model_config.get("timeout"),
             temperature=model_config.get("temperature"),  # Allow None to use model default
