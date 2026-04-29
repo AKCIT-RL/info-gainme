@@ -70,9 +70,13 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_prefix=1)
 app.secret_key = os.urandom(24)
 
 # ── Configuration ─────────────────────────────────────────────────────────
-# Local Ollama endpoint (Qwen3-8B on jarbas)
-OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+# Ollama endpoint — can be any node running Ollama, but MUST serve qwen3:8b.
+OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11435/v1")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b")
+
+# The oracle/pruner model MUST match the benchmark standard.
+# Any other model invalidates the human baseline comparison.
+REQUIRED_MODEL = "qwen3:8b"
 API_KEY = "ollama"
 
 # Available human baseline configs (must exist in configs/human/)
@@ -1073,6 +1077,15 @@ if __name__ == "__main__":
         OLLAMA_BASE_URL = args.ollama_url
     if args.ollama_model:
         OLLAMA_MODEL = args.ollama_model
+
+    # Hard requirement: oracle/pruner MUST use qwen3:8b to match benchmark conditions.
+    if OLLAMA_MODEL != REQUIRED_MODEL:
+        sys.exit(
+            f"ERROR: Oracle/pruner model is '{OLLAMA_MODEL}' but REQUIRED is '{REQUIRED_MODEL}'.\n"
+            f"Human baseline data is only comparable to LLM benchmarks when oracle/pruner\n"
+            f"uses the same model. Fix with: --ollama-model {REQUIRED_MODEL}\n"
+            f"or unset OLLAMA_MODEL env var."
+        )
 
     logger.info("Starting InfoGainme Human Baseline Web App")
     logger.info("  Ollama: %s (model: %s)", OLLAMA_BASE_URL, OLLAMA_MODEL)
