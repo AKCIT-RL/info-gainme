@@ -29,10 +29,12 @@ class PrunerAgent:
         self,
         llm_adapter: LLMAdapter,
         domain_config: DomainConfig | None = None,
+        max_retries: int = 15,
     ) -> None:
         self.llm_adapter = llm_adapter
         self.domain_config = domain_config or GEO_DOMAIN
         self.pruning_count = 0
+        self.max_retries = max_retries
 
         if self.llm_adapter._save_history:
             system_prompt = get_pruner_system_prompt(
@@ -85,41 +87,50 @@ class PrunerAgent:
         if self.llm_adapter._save_history:
             self.llm_adapter.append_history("user", user_prompt)
 
-        reply = self.llm_adapter.generate(messages=messages, stateless=True)
-        reply = llm_final_content(reply)
-
-        # Parse — fall back to no pruning on any error
-        try:
-            pruning_response = PrunerResponse.model_validate_json(reply)
-        except Exception as e:
-            logger.warning(
-                "Pruner JSON parse error (turn %d) — skipping pruning: %s",
-                turn_index, e,
-            )
-            return PruningResult(pruned_labels=set(), rationale=f"parse error: {e}")
-
-        keep_labels_raw = pruning_response.keep_labels
-        rationale = pruning_response.rationale
-
         active_labels = {c.label for c in candidate_pool.get_active()}
 
-        keep_labels = {l for l in keep_labels_raw if l in active_labels}
-        unknown = set(keep_labels_raw) - active_labels
-        if unknown:
-            logger.debug("Pruner returned unknown keep_labels (ignored): %s", unknown)
+        last_error: str = "unknown"
+        for attempt in range(1, self.max_retries + 1):
+            reply = self.llm_adapter.generate(messages=messages, stateless=True)
+            reply = llm_final_content(reply)
 
-        if not keep_labels:
-            logger.warning(
-                "Pruner returned empty keep_labels (turn %d) — skipping pruning.",
-                turn_index,
-            )
-            return PruningResult(pruned_labels=set(), rationale=f"empty keep_labels: {rationale}")
+            try:
+                pruning_response = PrunerResponse.model_validate_json(reply)
+            except Exception as e:
+                last_error = f"parse error: {e}"
+                logger.warning(
+                    "Pruner JSON parse error (turn %d, attempt %d/%d): %s",
+                    turn_index, attempt, self.max_retries, e,
+                )
+                continue
 
-        pruned_labels = active_labels - keep_labels
+            keep_labels_raw = pruning_response.keep_labels
+            rationale = pruning_response.rationale
 
-        # CRITICAL: never prune the target
-        if target_label:
-            pruned_labels.discard(target_label)
+            keep_labels = {l for l in keep_labels_raw if l in active_labels}
+            unknown = set(keep_labels_raw) - active_labels
+            if unknown:
+                logger.debug("Pruner returned unknown keep_labels (ignored): %s", unknown)
 
-        self.pruning_count += len(pruned_labels)
-        return PruningResult(pruned_labels=pruned_labels, rationale=rationale)
+            if not keep_labels:
+                last_error = f"empty keep_labels: {rationale}"
+                logger.warning(
+                    "Pruner returned empty keep_labels (turn %d, attempt %d/%d) — retrying.",
+                    turn_index, attempt, self.max_retries,
+                )
+                continue
+
+            pruned_labels = active_labels - keep_labels
+
+            # CRITICAL: never prune the target
+            if target_label:
+                pruned_labels.discard(target_label)
+
+            self.pruning_count += len(pruned_labels)
+            return PruningResult(pruned_labels=pruned_labels, rationale=rationale)
+
+        logger.error(
+            "Pruner failed after %d attempts (turn %d) — skipping pruning: %s",
+            self.max_retries, turn_index, last_error,
+        )
+        return PruningResult(pruned_labels=set(), rationale=f"failed after {self.max_retries} attempts: {last_error}")

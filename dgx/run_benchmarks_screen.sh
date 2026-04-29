@@ -10,6 +10,19 @@ SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 SHARED_GROUP="sd22"
 TARGET="${1:-configs/full/8b}"
 
+# Se não estiver dentro de um screen, relança dentro de um automaticamente
+if [[ -z "${STY}" ]]; then
+    SESSION_NAME="benchmarks-$(basename "${TARGET}" .yaml)"
+    LOG_ALL="${PROJECT_DIR}/logs/screen-$(basename "${TARGET}" .yaml)-all.log"
+    mkdir -p "${PROJECT_DIR}/logs"
+    echo "Iniciando screen '${SESSION_NAME}'..."
+    echo "Acompanhe com: screen -r ${SESSION_NAME}"
+    echo "Ou: tail -f ${LOG_ALL}"
+    screen -dmS "${SESSION_NAME}" bash -c \
+        "bash '$(realpath "$0")' '${TARGET}' 2>&1 | tee '${LOG_ALL}'; exec bash"
+    exit 0
+fi
+
 [[ "${TARGET}" != /* ]] && TARGET="${PROJECT_DIR}/${TARGET}"
 
 if [[ -f "${TARGET}" ]]; then
@@ -34,7 +47,7 @@ echo "=========================================="
 for CONFIG in "${CONFIGS[@]}"; do
     BENCHMARK_CONFIG="${CONFIG#${PROJECT_DIR}/}"
     NAME=$(basename "${CONFIG}" .yaml)
-    LOG="${PROJECT_DIR}/logs/screen-${NAME}.out"
+    LOG="${PROJECT_DIR}/logs/screen-${NAME}.log"
 
     echo ""
     echo ">>> ${NAME}"
