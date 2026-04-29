@@ -5,8 +5,8 @@
 # Lançamento típico (script gera log timestamped automaticamente):
 #   screen -dmS classify bash -c 'bash dgx/run_classify_questions_screen.sh; exec bash'
 #
-# Cada run grava em logs/classify-<backend>-<YYYYMMDD-HHMMSS>.out + atualiza
-# logs/classify-latest.out (symlink) pra facilitar tail -f.
+# Cada run grava em logs/classify-<backend>-<YYYYMMDD-HHMMSS>.log + atualiza
+# logs/classify-latest.log (symlink) pra facilitar tail -f.
 #
 # Acompanhar:
 #   screen -r classify
@@ -75,8 +75,8 @@ mkdir -p "${PROJECT_DIR}/outputs/question_classification"
 
 # Cada run tem seu próprio log timestamped + symlink "latest" pra fácil tail.
 # Override via LOG_FILE=/path/to/log se quiser.
-LOG_FILE="${LOG_FILE:-${PROJECT_DIR}/logs/classify-${BACKEND}-${RUN_TS}.out}"
-ln -sfn "${LOG_FILE}" "${PROJECT_DIR}/logs/classify-latest.out"
+LOG_FILE="${LOG_FILE:-${PROJECT_DIR}/logs/classify-${BACKEND}-${RUN_TS}.log}"
+ln -sfn "${LOG_FILE}" "${PROJECT_DIR}/logs/classify-latest.log"
 
 # Re-exec redirecionando stdout+stderr pro log (e ainda mostra na tela via tee).
 # Marcador __LOG_REDIRECTED__ evita loop se o re-exec rodar de novo.
