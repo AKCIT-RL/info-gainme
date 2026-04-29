@@ -24,7 +24,7 @@ from src.analysis.loader import load_experiment_results
 from src.analysis.writer import save_summary, save_city_variance
 
 
-def _analyze_single_csv(csv_path_str: str, verbose: bool = True, force: bool = False) -> tuple[str, int]:
+def _analyze_single_csv(csv_path_str: str, verbose: bool = True, force: bool = False, only_run: int | None = None) -> tuple[str, int]:
     """Executa a análise para um único arquivo runs.csv.
 
     Args:
@@ -55,12 +55,15 @@ def _analyze_single_csv(csv_path_str: str, verbose: bool = True, force: bool = F
             print(f"❌ CSV não encontrado: {csv_path}")
         return (csv_path_str, 1)
 
-    # Pular se summary.json já existe e é mais recente que runs.csv
+    # Sufixo para diferenciar outputs quando --only-run está ativo
+    run_suffix = f"_run{only_run:02d}" if only_run is not None else ""
+
+    # Pular se summary.json (ou summary_runXX.json) já existe e é mais recente que runs.csv
     if not force:
-        summary_path = csv_path.parent / "summary.json"
+        summary_path = csv_path.parent / f"summary{run_suffix}.json"
         if summary_path.exists() and summary_path.stat().st_mtime >= csv_path.stat().st_mtime:
             if verbose:
-                print(f"⏭️  Pulando (summary.json atualizado): {csv_path}")
+                print(f"⏭️  Pulando (summary{run_suffix}.json atualizado): {csv_path}")
             return (csv_path_str, 0)
 
     if verbose:
@@ -71,7 +74,7 @@ def _analyze_single_csv(csv_path_str: str, verbose: bool = True, force: bool = F
         print(f"{'='*70}\n")
 
     try:
-        results = load_experiment_results(csv_path)
+        results = load_experiment_results(csv_path, only_run=only_run)
     except Exception as e:
         if verbose:
             print(f"❌ Erro ao carregar CSV: {e}")
@@ -119,16 +122,18 @@ def _analyze_single_csv(csv_path_str: str, verbose: bool = True, force: bool = F
         print(f"{'='*70}\n")
 
     output_dir = csv_path.parent
-    save_summary(results, output_dir / "summary.json")
-    save_city_variance(results, output_dir / "variance.json")
+    save_summary(results, output_dir / f"summary{run_suffix}.json")
+    save_city_variance(results, output_dir / f"variance{run_suffix}.json")
 
     if verbose:
         print(f"\n{'='*70}")
         print(f"✅ ANÁLISE COMPLETA!")
         print(f"{'='*70}")
         print(f"📁 Resultados salvos em: {output_dir}")
-        print(f"   - summary.json (métricas globais + por cidade)")
-        print(f"   - variance.json (foco em variância)")
+        print(f"   - summary{run_suffix}.json (métricas globais + por cidade)")
+        print(f"   - variance{run_suffix}.json (foco em variância)")
+        if only_run is not None:
+            print(f"   ℹ️  Filtro ativo: run_index == {only_run}")
         print(f"{'='*70}\n")
 
     return (csv_path_str, 0)
@@ -136,34 +141,78 @@ def _analyze_single_csv(csv_path_str: str, verbose: bool = True, force: bool = F
 
 def main():
     """Main entry point for results analysis."""
-    # Base de outputs padrão relativa ao projeto
+    import argparse
+
     repo_root = Path(__file__).parent.parent.parent
     default_outputs_dir = repo_root / "outputs"
-
-    # Compatibilidade legado: CSV padrão específico (se nada for passado)
     default_csv = (
         repo_root
         / "outputs/models/s_Llama-3.1-8B-Instruct__o_Qwen3-8B__p_Qwen3-8B/top40_fo/runs.csv"
     )
 
+    parser = argparse.ArgumentParser(
+        description="Analisa runs.csv e gera summary.json + variance.json.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Exemplos:
+  python scripts/analysis/analyze_results.py path/to/runs.csv
+  python scripts/analysis/analyze_results.py --all
+  python scripts/analysis/analyze_results.py --all --only-run 1
+  python scripts/analysis/analyze_results.py path/to/runs.csv --only-run 1
+        """,
+    )
+    parser.add_argument(
+        "target",
+        nargs="?",
+        default=None,
+        help="Caminho para runs.csv ou '--all' para varrer todos.",
+    )
+    parser.add_argument(
+        "--all",
+        dest="all_mode",
+        action="store_true",
+        help="Processa todos os runs.csv encontrados sob base_outputs_dir.",
+    )
+    parser.add_argument(
+        "--base-dir",
+        default=None,
+        help="Diretório base para --all (default: outputs/).",
+    )
+    parser.add_argument(
+        "--only-run",
+        type=int,
+        default=None,
+        metavar="N",
+        help=(
+            "Filtra apenas linhas com run_index == N. "
+            "Outputs salvos como summary_runNN.json / variance_runNN.json."
+        ),
+    )
+    parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Re-analisa mesmo se summary.json já existir e estiver atualizado.",
+    )
+
+    args = parser.parse_args()
+
+    only_run: int | None = args.only_run
+
     # Sem argumentos → tenta default_csv legado
-    if len(sys.argv) == 1:
-        _, exit_code = _analyze_single_csv(str(default_csv))
+    if not args.all_mode and args.target is None:
+        _, exit_code = _analyze_single_csv(str(default_csv), only_run=only_run)
         return exit_code
 
-    # Modo --all: varre todos os runs.csv sob base_outputs_dir
-    if sys.argv[1] in {"--all", "all"}:
+    # Modo --all (ou "all" como argumento posicional legado)
+    if args.all_mode or args.target in {"--all", "all"}:
         base_dir = (
-            Path(sys.argv[2])
-            if len(sys.argv) > 2
-            else default_outputs_dir
+            Path(args.base_dir)
+            if args.base_dir
+            else (Path(args.target) if args.target not in {None, "--all", "all"} else default_outputs_dir)
         )
 
         if not base_dir.exists():
             print(f"❌ Diretório base não encontrado: {base_dir}")
-            print(
-                f"\nUsage: python {Path(__file__).name} --all [base_outputs_dir]"
-            )
             return 1
 
         runs_files = sorted(base_dir.rglob("runs.csv"))
@@ -171,8 +220,9 @@ def main():
             print(f"❌ Nenhum runs.csv encontrado em: {base_dir}")
             return 1
 
+        run_label = f" (run_index={only_run})" if only_run is not None else ""
         print(f"\n{'='*70}")
-        print(f"🚀 PROCESSAMENTO PARALELO - {len(runs_files)} arquivos")
+        print(f"🚀 PROCESSAMENTO PARALELO - {len(runs_files)} arquivos{run_label}")
         print(f"{'='*70}")
         print(f"📁 Base: {base_dir}")
         print(f"🔢 Workers: {os.cpu_count() or 4}")
@@ -182,15 +232,15 @@ def main():
         total_fail = 0
         failed_files = []
 
-        # Processar em paralelo
         with ProcessPoolExecutor(max_workers=os.cpu_count() or 4) as executor:
-            # Submeter todas as tarefas (converter Path para string para serialização)
             future_to_csv = {
-                executor.submit(_analyze_single_csv, str(csv_path), verbose=False): csv_path
+                executor.submit(
+                    _analyze_single_csv, str(csv_path),
+                    verbose=False, force=args.force, only_run=only_run
+                ): csv_path
                 for csv_path in runs_files
             }
 
-            # Processar resultados conforme completam
             for future in as_completed(future_to_csv):
                 csv_path = future_to_csv[future]
                 try:
@@ -217,7 +267,7 @@ def main():
         return 0 if total_fail == 0 else 1
 
     # Caso contrário: argumento é caminho para um CSV específico
-    _, exit_code = _analyze_single_csv(sys.argv[1])
+    _, exit_code = _analyze_single_csv(args.target, force=args.force, only_run=only_run)
     return exit_code
 
 

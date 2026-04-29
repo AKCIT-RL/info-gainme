@@ -9,30 +9,44 @@ from .data_types import GameRun, CityStats, ExperimentResults
 from ..utils.token_counter import count_seeker_tokens
 
 
-def load_experiment_results(csv_path: Path) -> ExperimentResults:
+def _safe_int(value) -> int | None:
+    """Converte value para int, retornando None em caso de falha."""
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        return None
+
+
+def load_experiment_results(csv_path: Path, only_run: int | None = None) -> ExperimentResults:
     """
     Carrega um arquivo runs.csv e retorna ExperimentResults estruturado.
-    
+
     Args:
         csv_path: Caminho para runs.csv
-        
+        only_run: Se especificado, filtra apenas as linhas cujo run_index == only_run.
+
     Returns:
         ExperimentResults com todas as métricas calculadas
-        
+
     Raises:
         ValueError: Se o CSV estiver vazio ou malformado
     """
     csv_path = Path(csv_path)
-    
+
     if not csv_path.exists():
         raise FileNotFoundError(f"CSV não encontrado: {csv_path}")
-    
+
     with csv_path.open("r") as f:
         reader = csv.DictReader(f)
         rows = list(reader)
-    
+
     if not rows:
         raise ValueError(f"CSV vazio: {csv_path}")
+
+    if only_run is not None:
+        rows = [r for r in rows if _safe_int(r.get("run_index")) == only_run]
+        if not rows:
+            raise ValueError(f"Nenhuma linha com run_index={only_run} em: {csv_path}")
     
     # Extrair metadata do experimento (da primeira linha)
     first = rows[0]
