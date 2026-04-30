@@ -125,6 +125,7 @@
                 <div class="stat-value" id="turn-count">0</div>
                 <div class="stat-label">Turn</div>
             </div>
+            {% if game.obs_mode.name == 'FULLY_OBSERVABLE' %}
             <div class="stat">
                 <div class="stat-value" id="active-count">{{ active_count }}</div>
                 <div class="stat-label">Active Candidates</div>
@@ -137,6 +138,7 @@
                 <div class="stat-value" id="total-ig">0.00</div>
                 <div class="stat-label">Total IG</div>
             </div>
+            {% endif %}
         </div>
 
         <!-- Candidates panel (FO) -->
@@ -275,9 +277,11 @@
                 totalIG += data.info_gain ?? 0;
 
                 document.getElementById('turn-count').textContent = data.turn;
-                document.getElementById('active-count').textContent = data.active_after;
-                document.getElementById('entropy-value').textContent = (data.h_after ?? 0).toFixed(2);
-                document.getElementById('total-ig').textContent = totalIG.toFixed(2);
+                if (obsMode === 'FULLY_OBSERVABLE') {
+                    document.getElementById('active-count').textContent = data.active_after;
+                    document.getElementById('entropy-value').textContent = (data.h_after ?? 0).toFixed(2);
+                    document.getElementById('total-ig').textContent = totalIG.toFixed(2);
+                }
 
                 if (obsMode === 'FULLY_OBSERVABLE') {
                     document.getElementById('candidates-list').textContent = data.candidates_text;
@@ -288,14 +292,20 @@
                 const igClass = ig > 0 ? '' : (ig === 0 ? 'zero' : 'negative');
                 const card = document.createElement('div');
                 card.className = 'turn-card';
+                const igLine = obsMode === 'FULLY_OBSERVABLE'
+                    ? `<div class="turn-ig ${igClass}">IG: ${ig.toFixed(4)} bits · H: ${(data.h_before ?? 0).toFixed(2)} → ${(data.h_after ?? 0).toFixed(2)}</div>`
+                    : '';
+                const candidatesDelta = obsMode === 'FULLY_OBSERVABLE'
+                    ? `<span>${data.active_before} → ${data.active_after} candidates</span>`
+                    : '';
                 card.innerHTML = `
                     <div class="turn-header">
                         <span>Turn ${data.turn}/${data.max_turns}</span>
-                        <span>${data.active_before} → ${data.active_after} candidates</span>
+                        ${candidatesDelta}
                     </div>
                     <div class="turn-q">Q: ${escapeHtml(data.question ?? '')}</div>
-                    <div class="turn-a">A: ${escapeHtml(data.oracle_answer ?? '—')}</div>
-                    <div class="turn-ig ${igClass}">IG: ${ig.toFixed(4)} bits · H: ${(data.h_before ?? 0).toFixed(2)} → ${(data.h_after ?? 0).toFixed(2)}</div>
+                    <div class="turn-a">A: ${escapeHtml(data.oracle_answer ?? '\u2014')}</div>
+                    ${igLine}
                 `;
                 history.prepend(card);
 
@@ -313,8 +323,9 @@
                         panel.classList.add('loss');
                         document.getElementById('game-over-title').textContent = '❌ Out of Turns';
                     }
-                    document.getElementById('game-over-stats').textContent =
-                        `${data.turn} turns · Total IG: ${totalIG.toFixed(2)} bits · Avg IG/turn: ${(data.turn > 0 ? totalIG / data.turn : 0).toFixed(4)}`;
+                    document.getElementById('game-over-stats').textContent = obsMode === 'FULLY_OBSERVABLE'
+                        ? `${data.turn} turns · Total IG: ${totalIG.toFixed(2)} bits · Avg IG/turn: ${(data.turn > 0 ? totalIG / data.turn : 0).toFixed(4)}`
+                        : `${data.turn} turns`;
                 }
 
                 questionInput.value = '';
