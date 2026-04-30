@@ -1,16 +1,19 @@
 #!/bin/bash
 # Roda o classificador de perguntas (scripts/question_classification/classify_questions.py) na DGX via Singularity.
-# Sem SLURM — pensado para ser executado dentro de um screen.
+# Cria automaticamente um screen "classify" se não estiver dentro de um.
 #
-# Lançamento típico (script gera log timestamped automaticamente):
-#   screen -dmS classify bash -c 'bash dgx/run_classify_questions_screen.sh; exec bash'
+# Lançamento típico:
+#   bash dgx/run_classify_questions_screen.sh
+#
+# Forçar execução no terminal atual (sem screen):
+#   FOREGROUND=1 bash dgx/run_classify_questions_screen.sh
 #
 # Cada run grava em logs/classify-<backend>-<YYYYMMDD-HHMMSS>.log + atualiza
 # logs/classify-latest.log (symlink) pra facilitar tail -f.
 #
 # Acompanhar:
 #   screen -r classify
-#   tail -f logs/classify-latest.out
+#   tail -f logs/classify-latest.log
 #   watch -n 10 'wc -l outputs/question_classifications.jsonl'
 #
 # Variáveis de ambiente (com defaults):
@@ -21,7 +24,7 @@
 #   NO_THINKING      "1" desativa modo de reasoning     (default: vazio = thinking ligado)
 #   FORCE            "1" re-classifica arquivos prontos (default: vazio)
 #   SEED             seed da amostragem estratificada   (default: 42)
-#   RUN_INDEX        manter só conversas com esse run_index (ex: 1 = só run01; default: vazio = todas)
+#   RUN_INDEX        manter só conversas com esse run_index (ex: 1 = só run01; default: 1)
 #   SAMPLE_INDICES   posições 0-based dentro de cada stratum, separadas por _
 #                    (ex: 0_10_20_30_40_50_60_70_80_90_100 = 11 alvos por stratum).
 #                    Underscores viram vírgulas — formato seguro para SLURM --export.
@@ -33,6 +36,17 @@ RUN_TS="${RUN_TS:-$(date +%Y%m%d-%H%M%S)}"
 
 PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
 SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
+
+# Auto-screen: se não estamos num screen e FOREGROUND não foi pedido, lança um.
+# screen seta $STY automaticamente, então o re-entry no script segue direto.
+if [ -z "${STY:-}" ] && [ "${FOREGROUND:-0}" != "1" ]; then
+    mkdir -p "${PROJECT_DIR}/logs"
+    echo "Iniciando screen 'classify' (run=${RUN_TS})..."
+    screen -dmS classify bash -c "RUN_TS='${RUN_TS}' BACKEND='${BACKEND:-}' PER_STRATUM='${PER_STRATUM:-}' MAX_CONCURRENCY='${MAX_CONCURRENCY:-}' NO_THINKING='${NO_THINKING:-}' FORCE='${FORCE:-}' SEED='${SEED:-}' RUN_INDEX='${RUN_INDEX:-}' SAMPLE_INDICES='${SAMPLE_INDICES:-}' bash '${BASH_SOURCE[0]}'; exec bash"
+    echo "  screen -r classify"
+    echo "  tail -f ${PROJECT_DIR}/logs/classify-latest.log"
+    exit 0
+fi
 
 # Default: Qwen3-235B-Instruct rodando no B200-2 (acesso direto na rede interna).
 # Alternativas: BACKEND=external (Kimi-K2.6 público) ou BACKEND=gptoss (gpt-oss-120b H100-02).
@@ -63,6 +77,7 @@ esac
 PER_STRATUM="${PER_STRATUM:-99999}"
 MAX_CONCURRENCY="${MAX_CONCURRENCY:-32}"
 SEED="${SEED:-42}"
+RUN_INDEX="${RUN_INDEX:-1}"
 
 EXTRA_FLAGS=""
 [[ "${NO_THINKING}" == "1" ]] && EXTRA_FLAGS+=" --no-thinking"
