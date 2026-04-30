@@ -140,7 +140,7 @@ class SeekerAgent:
 
         self._llm_adapter.append_history(
             "user",
-            f"[Turn {turn}/{self._max_turns}] [Computer] - {candidates_text}",
+            f"[Turn {turn}/{self._max_turns}] [Computer] - {candidates_text}\n\nAsk your first yes/no question.",
         )
         self._initial_candidates_injected = True
 
