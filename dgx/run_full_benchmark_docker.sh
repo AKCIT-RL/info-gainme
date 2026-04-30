@@ -279,7 +279,7 @@ start_vllm_server() {
             -e VLLM_ENGINE_READY_TIMEOUT_S="${VLLM_ENGINE_READY_TIMEOUT_S}" \
             --entrypoint bash \
             "${VLLM_IMAGE}" \
-            -c "pip install --quiet ${pre_install} && python -m vllm.entrypoints.openai.api_server ${vllm_args}" \
+            -c "pip install --quiet ${pre_install} && python3 -m vllm.entrypoints.openai.api_server ${vllm_args}" \
             > /dev/null 2>&1
     else
         docker run -d \
