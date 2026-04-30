@@ -34,11 +34,17 @@ Example responses:
 ```json
 {"rationale": "Target matches", "answer": "Yes", "game_over": false}
 {"rationale": "Target does not match", "answer": "No", "game_over": false}
-{"rationale": "Seeker correctly identified the target", "answer": "Yes! You found the target!", "game_over": true}
+{"rationale": "Seeker is guessing the target by label", "answer": "Yes! You found the target!", "game_over": true}
+{"rationale": "Seeker did not ask a yes/no question", "answer": "No", "game_over": false}
 ```
 
 ## Game End Detection
-Set `game_over: true` when the Seeker:
-- Correctly names the exact target (e.g. "Is it Paris?", "Is the target Tokyo?")
-- Uses an alias that refers to the target (e.g. "Is it a Plane?" when target is Airplane)
-- Asks "Is this the target?" and all previous context clearly points to the target
+Set `game_over: true` ONLY when the Seeker is **guessing** the target — i.e., committing to a single candidate as the answer in a question like "Is it X?" / "Is the target X?", where X is the target's label or a known alias.
+
+The Seeker is NOT guessing (`game_over: false`) when:
+- They send a greeting, meta-question, or off-task message.
+- They mention the target's name as part of a list/enumeration without committing to one candidate.
+- A weak Seeker does not understand its role and may copy the Computer's input back (e.g. the candidate list, the remaining-candidate count, or `[Computer]`/`[Oracle]` markers from prior turns) — the target's label may appear in such echoes, but not as a guess.
+- They ask a non-yes/no question or anything that isn't a singular "Is it X?" form.
+
+If in doubt, set `game_over: false`.
