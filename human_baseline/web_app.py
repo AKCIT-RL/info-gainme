@@ -699,6 +699,21 @@ def game_page(game_id):
     active = game.pool.get_active()
     candidates_text = ", ".join(c.label for c in sorted(active, key=lambda c: c.label))
 
+    # Derive display mode from config key for UI labelling and conditional rendering.
+    # FO = fully observable (candidate list every turn)
+    # PO = partially observable (no candidate info)
+    # HINT = PO + show candidate list once at start (then hidden)
+    # PRIOR = PO + pool description in seeker prompt (no list, but LLM has context)
+    ck = game.config_key
+    if "_hint" in ck:
+        display_mode = "HINT"
+    elif "_prior" in ck:
+        display_mode = "PRIOR"
+    elif game.obs_mode.name == "FULLY_OBSERVABLE":
+        display_mode = "FO"
+    else:
+        display_mode = "PO"
+
     seeker_prompt = get_seeker_system_prompt(
         target_noun=game.domain_config.target_noun,
         domain_description=game.domain_config.domain_description,
@@ -713,6 +728,7 @@ def game_page(game_id):
         candidates_text=candidates_text,
         active_count=len(active),
         seeker_prompt=seeker_prompt,
+        display_mode=display_mode,
     )
 
 

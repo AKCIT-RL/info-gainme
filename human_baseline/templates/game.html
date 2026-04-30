@@ -16,8 +16,10 @@
         .header-left { font-weight: 600; color: #58a6ff; }
         .header-right { font-size: 0.85rem; color: #8b949e; display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
         .badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-left: 0.5rem; }
-        .badge-fo { background: #1f6feb33; color: #58a6ff; }
-        .badge-po { background: #da3633aa; color: #f85149; }
+        .badge-fo     { background: #1f6feb33; color: #58a6ff; }
+        .badge-po     { background: #da3633aa; color: #f85149; }
+        .badge-hint   { background: #3d2b0066; color: #e3b341; }
+        .badge-prior  { background: #1a3d2b66; color: #3fb950; }
 
         /* Stats bar */
         .stats { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
@@ -73,7 +75,10 @@
 
         .hidden { display: none; }
 
-        /* Game prompt panel (collapsible) */
+        /* Hint one-shot panel */
+        .hint-panel { background: #1a1500; border: 1px solid #e3b34155; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+        .hint-panel h3 { font-size: 0.85rem; color: #e3b341; margin-bottom: 0.5rem; }
+        .hint-panel .hint-note { font-size: 0.75rem; color: #8b949e; margin-top: 0.5rem; font-style: italic; }
         .prompt-panel { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 1rem; }
         .prompt-panel summary { font-size: 0.85rem; color: #8b949e; padding: 0.6rem 1rem; cursor: pointer; user-select: none; list-style: none; display: flex; align-items: center; gap: 0.4rem; }
         .prompt-panel summary:hover { color: #c9d1d9; }
@@ -109,12 +114,16 @@
         <div class="header">
             <div class="header-left">
                 🎯 Info-GainME
-                <span class="badge {{ 'badge-fo' if game.obs_mode.name == 'FULLY_OBSERVABLE' else 'badge-po' }}">
-                    {{ game.obs_mode.name }}
+                <span class="badge badge-{{ display_mode | lower }}">
+                    {% if display_mode == 'FO' %}Fully Observable
+                    {% elif display_mode == 'PO' %}Partially Observable
+                    {% elif display_mode == 'HINT' %}With Hint
+                    {% elif display_mode == 'PRIOR' %}With Prior
+                    {% else %}{{ display_mode }}{% endif %}
                 </span>
             </div>
             <div class="header-right">
-                <span>{{ game.dataset_type }} · {{ game.n_candidates }} candidates · max {{ game.max_turns }} turns</span>
+                <span>{{ game.dataset_type }}{% if display_mode == 'FO' %} · {{ game.n_candidates }} candidates{% endif %} · max {{ game.max_turns }} turns</span>
                 <a href="{{ url_for('new_game', game_id=game.id) }}" class="btn btn-secondary btn-sm">↺ New Game</a>
             </div>
         </div>
@@ -125,7 +134,7 @@
                 <div class="stat-value" id="turn-count">0</div>
                 <div class="stat-label">Turn</div>
             </div>
-            {% if game.obs_mode.name == 'FULLY_OBSERVABLE' %}
+            {% if display_mode == 'FO' %}
             <div class="stat">
                 <div class="stat-value" id="active-count">{{ active_count }}</div>
                 <div class="stat-label">Active Candidates</div>
@@ -141,11 +150,17 @@
             {% endif %}
         </div>
 
-        <!-- Candidates panel (FO) -->
-        {% if game.obs_mode.name == 'FULLY_OBSERVABLE' %}
+        <!-- Candidates panel: FO = always visible + updated; HINT = shown once then auto-hidden -->
+        {% if display_mode == 'FO' %}
         <div class="candidates-panel" id="candidates-panel">
             <h3>Remaining Candidates (<span id="cand-count">{{ active_count }}</span>)</h3>
             <div class="candidates-list" id="candidates-list">{{ candidates_text }}</div>
+        </div>
+        {% elif display_mode == 'HINT' %}
+        <div class="hint-panel" id="hint-panel">
+            <h3>📌 Candidate Pool (shown once — study it!)</h3>
+            <div class="candidates-list">{{ candidates_text }}</div>
+            <p class="hint-note">This list will disappear when you ask your first question.</p>
         </div>
         {% endif %}
 
@@ -184,6 +199,7 @@
     <script>
         const gameId = "{{ game.id }}";
         const obsMode = "{{ game.obs_mode.name }}";
+        const displayMode = "{{ display_mode }}";  // FO | PO | HINT | PRIOR
         const askOracleUrl = "{{ url_for('ask_oracle', game_id=game.id) }}";
         const askPruneUrl = "{{ url_for('ask_prune', game_id=game.id) }}";
         let totalIG = 0;
@@ -277,13 +293,19 @@
                 totalIG += data.info_gain ?? 0;
 
                 document.getElementById('turn-count').textContent = data.turn;
-                if (obsMode === 'FULLY_OBSERVABLE') {
+                if (displayMode === 'FO') {
                     document.getElementById('active-count').textContent = data.active_after;
                     document.getElementById('entropy-value').textContent = (data.h_after ?? 0).toFixed(2);
                     document.getElementById('total-ig').textContent = totalIG.toFixed(2);
                 }
 
-                if (obsMode === 'FULLY_OBSERVABLE') {
+                // HINT mode: hide the one-shot candidate list after first question
+                if (displayMode === 'HINT' && data.turn === 1) {
+                    const hp = document.getElementById('hint-panel');
+                    if (hp) hp.style.display = 'none';
+                }
+
+                if (displayMode === 'FO') {
                     document.getElementById('candidates-list').textContent = data.candidates_text;
                     document.getElementById('cand-count').textContent = data.active_after;
                 }
@@ -292,10 +314,10 @@
                 const igClass = ig > 0 ? '' : (ig === 0 ? 'zero' : 'negative');
                 const card = document.createElement('div');
                 card.className = 'turn-card';
-                const igLine = obsMode === 'FULLY_OBSERVABLE'
+                const igLine = displayMode === 'FO'
                     ? `<div class="turn-ig ${igClass}">IG: ${ig.toFixed(4)} bits · H: ${(data.h_before ?? 0).toFixed(2)} → ${(data.h_after ?? 0).toFixed(2)}</div>`
                     : '';
-                const candidatesDelta = obsMode === 'FULLY_OBSERVABLE'
+                const candidatesDelta = displayMode === 'FO'
                     ? `<span>${data.active_before} → ${data.active_after} candidates</span>`
                     : '';
                 card.innerHTML = `
@@ -323,7 +345,7 @@
                         panel.classList.add('loss');
                         document.getElementById('game-over-title').textContent = '❌ Out of Turns';
                     }
-                    document.getElementById('game-over-stats').textContent = obsMode === 'FULLY_OBSERVABLE'
+                    document.getElementById('game-over-stats').textContent = displayMode === 'FO'
                         ? `${data.turn} turns · Total IG: ${totalIG.toFixed(2)} bits · Avg IG/turn: ${(data.turn > 0 ? totalIG / data.turn : 0).toFixed(4)}`
                         : `${data.turn} turns`;
                 }
