@@ -91,8 +91,12 @@ if configs_dir.exists():
 PARTICIPANTS_FILE = PROJECT_ROOT / "human_baseline" / "participants.json"
 PARTICIPANTS_LOCK = threading.Lock()
 
-# Configs eligible for auto-assignment (all human configs, sorted for determinism)
-AUTO_ASSIGN_CONFIGS = sorted(AVAILABLE_CONFIGS.keys())
+# Configs eligible for auto-assignment — production configs only.
+# geo_20 configs are for debugging only and excluded from participant rotation.
+AUTO_ASSIGN_CONFIGS = sorted(
+    k for k in AVAILABLE_CONFIGS
+    if not k.startswith("geo_20")
+)
 
 
 def _load_participants() -> dict:
@@ -113,11 +117,42 @@ def _save_participants(data: dict) -> None:
     tmp.replace(PARTICIPANTS_FILE)
 
 
+def count_games_per_config() -> dict[str, int]:
+    """Count completed games per config from the outputs/ directory.
+
+    This is the ground truth for representativity — how many human games have
+    actually been saved for each config. Used by pick_least_played_config().
+    """
+    counts: dict[str, int] = {k: 0 for k in AUTO_ASSIGN_CONFIGS}
+    outputs_base = PROJECT_ROOT / "outputs" / "models"
+    if not outputs_base.exists():
+        return counts
+    for model_dir in outputs_base.iterdir():
+        if not model_dir.is_dir() or not model_dir.name.startswith("s_human"):
+            continue
+        for config_dir in model_dir.iterdir():
+            if config_dir.name in counts:
+                # Each subdirectory under conversations/ is one completed game
+                conv_dir = config_dir / "conversations"
+                if conv_dir.exists():
+                    counts[config_dir.name] += sum(1 for _ in conv_dir.iterdir() if _.is_dir())
+    return counts
+
+
+def pick_least_played_config() -> str:
+    """Return the AUTO_ASSIGN config with fewest completed games.
+
+    Ties broken alphabetically for determinism.
+    """
+    counts = count_games_per_config()
+    return min(AUTO_ASSIGN_CONFIGS, key=lambda k: (counts.get(k, 0), k))
+
+
 def assign_config_for_participant(email: str) -> str:
     """Assign a config key to a participant, balancing across all auto-assign configs.
 
     - If this email was seen before: return the same config they got last time.
-    - Otherwise: pick the config with fewest assignments so far (round-robin).
+    - Otherwise: pick the config with fewest completed games (representativity).
     """
     with PARTICIPANTS_LOCK:
         data = _load_participants()
@@ -125,20 +160,13 @@ def assign_config_for_participant(email: str) -> str:
 
         email_lower = email.strip().lower()
         if email_lower in participants:
-            # Returning participant — give them the same config
+            # Returning participant on first login — give them the same config
             return participants[email_lower]["config"]
 
-        # New participant — pick least-assigned config
-        counts = data.get("config_counts", {k: 0 for k in AUTO_ASSIGN_CONFIGS})
-        # Make sure all keys exist (handles new configs added later)
-        for k in AUTO_ASSIGN_CONFIGS:
-            counts.setdefault(k, 0)
-
-        # Pick config with lowest count; break ties by sorted order (deterministic)
-        assigned = min(AUTO_ASSIGN_CONFIGS, key=lambda k: (counts.get(k, 0), k))
+        # New participant — pick least-played config from actual outputs
+        assigned = pick_least_played_config()
 
         # Record participant
-        counts[assigned] = counts.get(assigned, 0) + 1
         participants[email_lower] = {
             "email": email.strip(),
             "config": assigned,
@@ -146,7 +174,6 @@ def assign_config_for_participant(email: str) -> str:
             "games": 0,
         }
         data["participants"] = participants
-        data["config_counts"] = counts
         _save_participants(data)
 
         logger.info("New participant: %s → config=%s", email_lower, assigned)
@@ -621,22 +648,28 @@ def start():
 
 @app.route("/new_game/<game_id>")
 def new_game(game_id):
-    """Start a new game reusing the config from an existing game.
+    """Start a new game, picking the globally least-played config for representativity.
 
     Optional URL params:
-      ?seed=42   — override seed (default: random)
+      ?config=<key>  — force a specific config (debug/researcher override)
+      ?seed=42       — override seed (default: random)
     """
     old_game = GAMES.get(game_id)
-    config_key = old_game.config_key if old_game else request.args.get("config", "")
+    email = session.get("participant_email", "") or (old_game.participant_email if old_game else "")
 
-    if config_key not in AVAILABLE_CONFIGS:
-        return redirect(url_for("index"))
+    # Config override: researcher/debug can force a specific config via ?config=
+    forced_config = request.args.get("config", "")
+    if forced_config and forced_config in AVAILABLE_CONFIGS:
+        config_key = forced_config
+        logger.info("new_game: debug config override → %s", config_key)
+    else:
+        # Normal path: always pick the least-played config for representativity
+        config_key = pick_least_played_config()
+        logger.info("new_game: least-played config → %s", config_key)
 
     seed = request.args.get("seed")
     seed = int(seed) if seed and seed.strip().lstrip("-").isdigit() else None
 
-    # Carry participant email from session or from old game
-    email = session.get("participant_email", "") or (old_game.participant_email if old_game else "")
     game = create_game(config_key, seed=seed, participant_email=email)
     with GAMES_LOCK:
         GAMES[game.id] = game
