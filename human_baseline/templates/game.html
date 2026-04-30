@@ -123,7 +123,7 @@
                 </span>
             </div>
             <div class="header-right">
-                <span>{{ game.dataset_type }}{% if display_mode == 'FO' %} · {{ game.n_candidates }} candidates{% endif %} · max {{ game.max_turns }} turns</span>
+                <span>{{ game.dataset_type }}{% if display_mode != 'PO' %} · {{ game.n_candidates }} candidates{% endif %} · max {{ game.max_turns }} turns</span>
                 <a href="{{ url_for('new_game', game_id=game.id) }}" class="btn btn-secondary btn-sm">↺ New Game</a>
             </div>
         </div>
@@ -150,17 +150,20 @@
             {% endif %}
         </div>
 
-        <!-- Candidates panel: FO = always visible + updated; HINT = shown once then auto-hidden -->
+        <!-- Candidates panel:
+             FO    = live-updated list every turn
+             PRIOR = static list shown throughout (LLM has same pool description)
+             HINT  = no panel (hint is in game instructions text)
+             PO    = no panel -->
         {% if display_mode == 'FO' %}
         <div class="candidates-panel" id="candidates-panel">
             <h3>Remaining Candidates (<span id="cand-count">{{ active_count }}</span>)</h3>
             <div class="candidates-list" id="candidates-list">{{ candidates_text }}</div>
         </div>
-        {% elif display_mode == 'HINT' %}
-        <div class="hint-panel" id="hint-panel">
-            <h3>📌 Candidate Pool (shown once — study it!)</h3>
+        {% elif display_mode == 'PRIOR' %}
+        <div class="candidates-panel" id="candidates-panel-prior">
+            <h3>Candidate Pool ({{ active_count }} total)</h3>
             <div class="candidates-list">{{ candidates_text }}</div>
-            <p class="hint-note">This list will disappear when you ask your first question.</p>
         </div>
         {% endif %}
 
@@ -299,11 +302,8 @@
                     document.getElementById('total-ig').textContent = totalIG.toFixed(2);
                 }
 
-                // HINT mode: hide the one-shot candidate list after first question
-                if (displayMode === 'HINT' && data.turn === 1) {
-                    const hp = document.getElementById('hint-panel');
-                    if (hp) hp.style.display = 'none';
-                }
+                // HINT mode: no candidate panel to hide (hint is in game instructions)
+                // PRIOR mode: static candidate pool panel stays visible throughout
 
                 if (displayMode === 'FO') {
                     document.getElementById('candidates-list').textContent = data.candidates_text;
