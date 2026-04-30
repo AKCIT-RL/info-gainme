@@ -225,7 +225,37 @@ class Orchestrator:
             )
 
             # Compute entropy after pruning
-            active_count_after = len(self._pool.get_active())
+            active_after = self._pool.get_active()
+            active_count_after = len(active_after)
+
+            # Validate Oracle's game_over against post-pruning state.
+            # Oracle (especially Qwen3-8B with strict JSON schema) can hallucinate
+            # game_over=true on off-task/non-yes-no questions, copying the
+            # "Yes! You found the target!" example from the prompt. The most robust
+            # signal of a real win is that the Pruner converged the active set to
+            # exactly the target — anything else means the win is spurious.
+            if answer.game_over:
+                target_label = self._oracle._target.label
+                converged = (
+                    active_count_after == 1
+                    and active_after[0].label == target_label
+                )
+                if not converged:
+                    logger.warning(
+                        "Oracle set game_over=true but pruning did not converge to "
+                        "target (active=%d, target_in_active=%s). Overriding to "
+                        "False. Q=%r",
+                        active_count_after,
+                        any(c.label == target_label for c in active_after),
+                        question.text[:120],
+                    )
+                    answer = Answer(
+                        rationale=answer.rationale,
+                        text=answer.text,
+                        compliant=False,
+                        game_over=False,
+                    )
+
             if answer.game_over:
                 h_after = 0.0
             else:
