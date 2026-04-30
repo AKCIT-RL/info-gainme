@@ -534,10 +534,16 @@ def login():
         if not email or "@" not in email:
             return render_template("login.html", error="Please enter a valid email address.", saved_email=email)
 
-        # Assign config (balanced) — same config returned for returning participants
-        config_key = assign_config_for_participant(email)
+        # Assign config: forced override > least-played (representativity)
+        forced_config = request.form.get("config", "").strip()
+        if forced_config and forced_config in AVAILABLE_CONFIGS:
+            config_key = forced_config
+            logger.info("Login config override: %s → %s", email, config_key)
+        else:
+            config_key = pick_least_played_config()
+            # Still register in participants file for tracking
+            assign_config_for_participant(email)
         if config_key not in AVAILABLE_CONFIGS:
-            # Fallback if config was removed since participant registered
             config_key = next(iter(AVAILABLE_CONFIGS))
 
         # Store email in Flask session
@@ -562,7 +568,9 @@ def login():
 
     # GET — show login form (pre-fill email from cookie if available)
     saved_email = request.cookies.get("participant_email", "")
-    return render_template("login.html", error=None, saved_email=saved_email)
+    return render_template("login.html", error=None, saved_email=saved_email,
+                           available_configs=sorted(AVAILABLE_CONFIGS.keys()),
+                           auto_assign_configs=AUTO_ASSIGN_CONFIGS)
 
 
 @app.route("/")

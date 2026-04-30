@@ -25,7 +25,7 @@
             padding: 2rem;
         }
         label { display: block; color: #8b949e; font-size: 0.85rem; margin-bottom: 0.4rem; }
-        input[type=email] {
+        input[type=email], select {
             width: 100%;
             padding: 0.75rem;
             background: #0d1117;
@@ -36,7 +36,7 @@
             margin-bottom: 1rem;
             transition: border-color 0.2s;
         }
-        input[type=email]:focus { outline: none; border-color: #58a6ff; }
+        input[type=email]:focus, select:focus { outline: none; border-color: #58a6ff; }
         .btn {
             display: block;
             width: 100%;
@@ -66,6 +66,36 @@
             color: #8b949e;
             margin-top: 1.2rem;
         }
+
+        /* Debug config selector — hidden by default */
+        .debug-toggle {
+            text-align: center;
+            margin-top: 1.5rem;
+        }
+        .debug-toggle button {
+            background: none;
+            border: none;
+            color: #30363d;
+            font-size: 0.7rem;
+            cursor: pointer;
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            transition: color 0.2s;
+        }
+        .debug-toggle button:hover { color: #8b949e; }
+        .debug-panel {
+            display: none;
+            margin-top: 0.75rem;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 1rem;
+        }
+        .debug-panel.open { display: block; }
+        .debug-panel label { color: #8b949e; font-size: 0.8rem; margin-bottom: 0.3rem; }
+        .debug-panel select { margin-bottom: 0; font-size: 0.85rem; }
+        .debug-hint { font-size: 0.75rem; color: #484f58; margin-top: 0.4rem; }
+        .config-auto { color: #3fb950; font-style: italic; }
     </style>
 </head>
 <body>
@@ -74,7 +104,7 @@
         <p class="subtitle">Human Baseline Collection</p>
 
         <div class="card">
-            <form action="{{ url_for('login') }}" method="POST">
+            <form action="{{ url_for('login') }}" method="POST" id="login-form">
                 {% if error %}
                 <div class="error">{{ error }}</div>
                 {% endif %}
@@ -82,6 +112,8 @@
                 <input type="email" name="email" id="email" placeholder="you@example.com"
                        value="{{ saved_email or '' }}"
                        autofocus autocomplete="email" required>
+                <!-- Hidden config field — only set when debug panel is used -->
+                <input type="hidden" name="config" id="config-hidden" value="">
                 <button type="submit" class="btn">Continue →</button>
             </form>
         </div>
@@ -90,6 +122,40 @@
             Your email is only used to identify your contributions.<br>
             You'll be assigned a game automatically.
         </p>
+
+        <!-- Debug config override — visually hidden, revealed on triple-click of subtitle -->
+        <div class="debug-toggle">
+            <button type="button" id="debug-btn" onclick="toggleDebug()" title="Debug: select config">···</button>
+        </div>
+        <div class="debug-panel" id="debug-panel">
+            <label for="config-select">Force game config (debug only)</label>
+            <select id="config-select" onchange="onConfigSelect(this.value)">
+                <option value="" class="config-auto">— auto (least played) —</option>
+                {% for key in auto_assign_configs %}
+                <option value="{{ key }}"{% if key == (saved_email and '') %} {% endif %}>{{ key }}</option>
+                {% endfor %}
+                {% if available_configs | length > auto_assign_configs | length %}
+                <optgroup label="── debug only ──">
+                {% for key in available_configs %}
+                    {% if key not in auto_assign_configs %}
+                    <option value="{{ key }}">{{ key }}</option>
+                    {% endif %}
+                {% endfor %}
+                </optgroup>
+                {% endif %}
+            </select>
+            <p class="debug-hint">Auto picks the config with the fewest completed games.</p>
+        </div>
     </div>
+
+    <script>
+        function toggleDebug() {
+            const panel = document.getElementById('debug-panel');
+            panel.classList.toggle('open');
+        }
+        function onConfigSelect(val) {
+            document.getElementById('config-hidden').value = val;
+        }
+    </script>
 </body>
 </html>
