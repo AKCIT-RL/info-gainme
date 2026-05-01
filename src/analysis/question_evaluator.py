@@ -100,28 +100,39 @@ def load_turns_history(turns_jsonl_path: Path) -> List[Dict[str, Any]]:
 
 _JSONL_INDEX: Optional[Dict[str, List[Dict[str, Any]]]] = None
 _JSONL_INDEX_PATH: Optional[Path] = None
+_JSONL_INDEX_LOCK = __import__("threading").Lock()
 
 
 def _get_jsonl_index(unified_jsonl: Path) -> Dict[str, List[Dict[str, Any]]]:
-    """Load and cache the unified seeker_traces.jsonl as a {seeker_path → turns} dict."""
+    """Load and cache the unified seeker_traces.jsonl as a {seeker_path → turns} dict.
+
+    Streamed line-by-line (the file is multi-GB) and guarded by a lock so the
+    first thread loads while the others wait, instead of all 32 racing on the
+    GIL through a 2.9 GB read_text().splitlines().
+    """
     global _JSONL_INDEX, _JSONL_INDEX_PATH
     if _JSONL_INDEX is not None and _JSONL_INDEX_PATH == unified_jsonl:
         return _JSONL_INDEX
-    index: Dict[str, List[Dict[str, Any]]] = {}
-    for line in unified_jsonl.read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
-        try:
-            record = json.loads(line)
-        except Exception:
-            continue
-        key = record.get("seeker_path", "")
-        if key:
-            index[key] = record.get("turns") or []
-    _JSONL_INDEX = index
-    _JSONL_INDEX_PATH = unified_jsonl
-    logger.info("Loaded unified JSONL index: %d entries from %s", len(index), unified_jsonl)
-    return index
+    with _JSONL_INDEX_LOCK:
+        # Re-check inside the lock — another thread may have populated it.
+        if _JSONL_INDEX is not None and _JSONL_INDEX_PATH == unified_jsonl:
+            return _JSONL_INDEX
+        index: Dict[str, List[Dict[str, Any]]] = {}
+        with unified_jsonl.open("r", encoding="utf-8") as fh:
+            for line in fh:
+                if not line.strip():
+                    continue
+                try:
+                    record = json.loads(line)
+                except Exception:
+                    continue
+                key = record.get("seeker_path", "")
+                if key:
+                    index[key] = record.get("turns") or []
+        _JSONL_INDEX = index
+        _JSONL_INDEX_PATH = unified_jsonl
+        logger.info("Loaded unified JSONL index: %d entries from %s", len(index), unified_jsonl)
+        return index
 
 
 def _load_seeker_history(conversation_dir: Path) -> List[Dict[str, Any]]:

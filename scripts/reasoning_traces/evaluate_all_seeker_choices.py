@@ -22,7 +22,7 @@ import yaml
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.analysis.question_evaluator import evaluate_seeker_choices
+from src.analysis.question_evaluator import evaluate_seeker_choices, _get_jsonl_index
 from src.agents.llm_config import LLMConfig
 from src.utils import ClaryLogger
 
@@ -642,6 +642,15 @@ def main():
     logger.info("📚 Unified JSONL: %s (%d already evaluated)", unified_jsonl, len(done_keys))
     if not args.no_migrate:
         migrate_per_conv_files(args.outputs_base_dir, unified_jsonl, done_keys)
+
+    # Pre-load the seeker_traces.jsonl index in the main thread. The file is
+    # multi-GB; making 32 workers race the load via the GIL stalls everything
+    # for minutes (the C-level splitlines/JSON parse never yields). Loading
+    # once here populates the module-level cache for all workers to reuse.
+    seeker_traces_jsonl = args.outputs_base_dir / "seeker_traces.jsonl"
+    if seeker_traces_jsonl.exists():
+        logger.info("📚 Pre-loading seeker_traces.jsonl index (%s)…", seeker_traces_jsonl)
+        _get_jsonl_index(seeker_traces_jsonl)
 
     if args.all:
         runs_csvs = find_cot_runs_csvs(args.outputs_base_dir)
