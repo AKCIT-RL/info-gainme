@@ -7,8 +7,11 @@
 # pra dar nota de qualidade; este re-roda Oracle+Pruner reais (Qwen3-8B por
 # default) e mede ganho de informação direto.
 #
-# Lançamento típico (script gera log timestamped automaticamente):
-#   screen -dmS eval-choices bash -c 'bash dgx/run_evaluate_choices_screen.sh; exec bash'
+# Lançamento típico (cria screen automaticamente):
+#   bash dgx/run_evaluate_choices_screen.sh
+#
+# Forçar execução no terminal atual (sem screen):
+#   FOREGROUND=1 bash dgx/run_evaluate_choices_screen.sh
 #
 # Cada run grava em logs/eval-choices-<backend>-<YYYYMMDD-HHMMSS>.out + atualiza
 # logs/eval-choices-latest.out (symlink) pra facilitar tail -f.
@@ -36,21 +39,31 @@ RUN_TS="${RUN_TS:-$(date +%Y%m%d-%H%M%S)}"
 PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
 SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 
+# Auto-screen: se não estamos num screen e FOREGROUND não foi pedido, lança um.
+# screen seta $STY automaticamente, então o re-entry no script segue direto.
+if [ -z "${STY:-}" ] && [ "${FOREGROUND:-0}" != "1" ]; then
+    mkdir -p "${PROJECT_DIR}/logs"
+    echo "Iniciando screen 'eval-choices' (run=${RUN_TS})..."
+    screen -dmS eval-choices bash -c "RUN_TS='${RUN_TS}' BACKEND='${BACKEND:-}' MAX_WORKERS='${MAX_WORKERS:-}' FORCE='${FORCE:-}' DRY_RUN='${DRY_RUN:-}' TEMPERATURE='${TEMPERATURE:-}' bash '${BASH_SOURCE[0]}' ${1:-}; exec bash"
+    echo "  screen -r eval-choices"
+    echo "  tail -f ${PROJECT_DIR}/logs/eval-choices-latest.out"
+    exit 0
+fi
+
 RUNS_PATH="${1:-}"
 MAX_WORKERS="${MAX_WORKERS:-8}"
 
-# Default: Qwen3-8B no H100-02 :8461 (sem auth, served-model-name "Qwen3-8B").
-# Alternativa: BACKEND=qwen3_8b_h3 (H100-03 :9200, atualmente off mas mantido por
-# compat com configs/servers.yaml caso volte).
-BACKEND="${BACKEND:-qwen3_8b_h2}"
+# Default: Qwen3-8B no H100-03 :8800 (julia's job — sempre ativo quando h100n3 está up).
+# Alternativa: BACKEND=qwen3_8b_h2 (H100-02 :8461, porta usada por jobs locais).
+BACKEND="${BACKEND:-qwen3_8b_h3}"
 case "$BACKEND" in
-    qwen3_8b_h2)
-        BASE_URL="${BASE_URL:-http://10.100.0.112:8461/v1}"
+    qwen3_8b_h3)
+        BASE_URL="${BASE_URL:-http://10.100.0.113:8800/v1}"
         API_KEY="${API_KEY:-EMPTY}"
         MODEL="${MODEL:-Qwen3-8B}"
         ;;
-    qwen3_8b_h3)
-        BASE_URL="${BASE_URL:-http://10.100.0.113:9200/v1}"
+    qwen3_8b_h2)
+        BASE_URL="${BASE_URL:-http://10.100.0.112:8461/v1}"
         API_KEY="${API_KEY:-EMPTY}"
         MODEL="${MODEL:-Qwen3-8B}"
         ;;
