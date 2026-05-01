@@ -86,7 +86,10 @@ CMD="/usr/bin/python3 -m vllm.entrypoints.openai.api_server \
   --host 0.0.0.0 \
   --gpu-memory-utilization ${MODEL1_GPU_MEM} \
   --max-num-seqs 16 \
+  --max-num-batched-tokens 16384 \
   --max-model-len ${MODEL1_MAX_LEN} \
+  --enable-prefix-caching \
+  --disable-log-requests \
   --enforce-eager"
 [ -n "${MODEL1_REASONING_PARSER}" ] && CMD="${CMD} --reasoning-parser ${MODEL1_REASONING_PARSER}"
 

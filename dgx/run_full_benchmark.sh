@@ -173,11 +173,16 @@ echo ""
 
 # Tuning dos vLLMs:
 # - VLLM_MAX_NUM_SEQS: número de requests paralelos máximo (default 32).
+# - VLLM_MAX_NUM_BATCHED_TOKENS: tokens em batch por step de prefill (default 16384).
 # - VLLM_ENFORCE_EAGER: se "true" passa --enforce-eager (mais rápido pra subir,
 #   ~20-30% mais lento em runtime). Auto-desativado em B200 (CUDA graphs valem
 #   mais a pena em Blackwell); ativado em H100 por segurança. Override manual:
 #   VLLM_ENFORCE_EAGER=true|false.
+# - --enable-prefix-caching e --disable-log-requests sempre ativos: o primeiro
+#   é grande win porque oracle/pruner têm system prompts estáticos (KV cache reuse
+#   entre turns); o segundo reduz overhead de I/O dos logs.
 export VLLM_MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-32}"
+export VLLM_MAX_NUM_BATCHED_TOKENS="${VLLM_MAX_NUM_BATCHED_TOKENS:-16384}"
 if [ -z "${VLLM_ENFORCE_EAGER:-}" ]; then
     if [[ "${SLURM_JOB_PARTITION:-}" == *b200* ]]; then
         VLLM_ENFORCE_EAGER="false"
@@ -185,14 +190,14 @@ if [ -z "${VLLM_ENFORCE_EAGER:-}" ]; then
         VLLM_ENFORCE_EAGER="true"
     fi
 fi
-echo "  max_num_seqs=${VLLM_MAX_NUM_SEQS} | enforce_eager=${VLLM_ENFORCE_EAGER} | partition=${SLURM_JOB_PARTITION}"
+echo "  max_num_seqs=${VLLM_MAX_NUM_SEQS} | max_num_batched_tokens=${VLLM_MAX_NUM_BATCHED_TOKENS} | enforce_eager=${VLLM_ENFORCE_EAGER} | partition=${SLURM_JOB_PARTITION}"
 echo ""
 
 start_vllm_server() {
     local model=$1 name=$2 port=$3 gpu=$4 gpu_mem=$5 max_len=$6 log=$7 parser=${8:-""} tp=${9:-1}
     echo "Starting ${name} (GPU ${gpu}:${port}, TP=${tp})..." >&2
 
-    local cmd="/usr/bin/python3 -m vllm.entrypoints.openai.api_server --model ${model} --served-model-name ${name} --download-dir /workspace/hf-cache/hub --port ${port} --host 0.0.0.0 --gpu-memory-utilization ${gpu_mem} --max-num-seqs ${VLLM_MAX_NUM_SEQS} --max-model-len ${max_len} --tensor-parallel-size ${tp}"
+    local cmd="/usr/bin/python3 -m vllm.entrypoints.openai.api_server --model ${model} --served-model-name ${name} --download-dir /workspace/hf-cache/hub --port ${port} --host 0.0.0.0 --gpu-memory-utilization ${gpu_mem} --max-num-seqs ${VLLM_MAX_NUM_SEQS} --max-num-batched-tokens ${VLLM_MAX_NUM_BATCHED_TOKENS} --max-model-len ${max_len} --tensor-parallel-size ${tp} --enable-prefix-caching --disable-log-requests"
     [ "${VLLM_ENFORCE_EAGER}" = "true" ] && cmd="${cmd} --enforce-eager"
     [ -n "${parser}" ] && cmd="${cmd} --reasoning-parser ${parser}"
 
