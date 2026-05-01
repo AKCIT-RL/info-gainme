@@ -59,12 +59,12 @@ fi
 
 export MODEL1="${MODEL1:-Qwen/Qwen3-4B-Thinking-2507}"
 export MODEL1_NAME="${MODEL1_NAME:-Qwen3-4B-Thinking-2507}"
-export MODEL1_GPU_MEM="${MODEL1_GPU_MEM:-0.90}"
+export MODEL1_GPU_MEM="${MODEL1_GPU_MEM:-0.95}"
 export MODEL1_MAX_LEN="${MODEL1_MAX_LEN:-32000}"
 
 export MODEL2="${MODEL2:-Qwen/Qwen3-8B}"
 export MODEL2_NAME="${MODEL2_NAME:-Qwen3-8B}"
-export MODEL2_GPU_MEM="${MODEL2_GPU_MEM:-0.90}"
+export MODEL2_GPU_MEM="${MODEL2_GPU_MEM:-0.95}"
 export MODEL2_MAX_LEN="${MODEL2_MAX_LEN:-32000}"
 
 # Auto-detect reasoning parser from served-model-name. Set the env var
