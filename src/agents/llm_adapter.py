@@ -247,55 +247,64 @@ class LLMAdapter:
         base_delay = 1.0   # seconds
         max_delay = 60.0   # cap so backoff never exceeds 1 minute
 
-        for attempt in range(max_retries):
-            try:
-                client = OpenAI(**client_kwargs)
-                completion = client.chat.completions.create(**request_kwargs)
+        # Single OpenAI client for the whole retry loop. The httpx connection
+        # pool inside it must be drained explicitly via close() — otherwise
+        # peer-half-closed sockets pile up in CLOSE_WAIT and exhaust FDs.
+        client = OpenAI(**client_kwargs)
+        try:
+            for attempt in range(max_retries):
+                try:
+                    completion = client.chat.completions.create(**request_kwargs)
 
-                # Build raw_content, prepending reasoning_content if present
-                # (vLLM with Qwen3 thinking returns reasoning in a separate field)
-                message = completion.choices[0].message
-                content = message.content or ""
-                extras = message.model_extra or {}
-                reasoning_content = extras.get("reasoning") or extras.get("reasoning_content")
-                if reasoning_content:
-                    raw_content = f"<think>{reasoning_content}</think>{content}"
-                else:
-                    raw_content = content
-                if not raw_content:
-                    raise LLMAdapterError("Empty response from provider.")
-
-                # Clean content for return
-                final_content = llm_final_content(raw_content)
-                if not final_content:
-                    raise LLMAdapterError("Response not in the expected format.")
-
-                break  # Success, exit retry loop
-            except Exception as exc:
-                if attempt < max_retries - 1:
-                    # Honour Retry-After header for 429 rate-limit responses
-                    retry_after = None
-                    try:
-                        from openai import RateLimitError as _RLE
-                        if isinstance(exc, _RLE):
-                            retry_after = float(
-                                getattr(getattr(exc, "response", None), "headers", {}).get("retry-after", 0)
-                                or getattr(exc, "retry_after", 0)
-                                or 0
-                            ) or None
-                    except Exception:
-                        pass
-
-                    if retry_after and retry_after > 0:
-                        delay = retry_after
+                    # Build raw_content, prepending reasoning_content if present
+                    # (vLLM with Qwen3 thinking returns reasoning in a separate field)
+                    message = completion.choices[0].message
+                    content = message.content or ""
+                    extras = message.model_extra or {}
+                    reasoning_content = extras.get("reasoning") or extras.get("reasoning_content")
+                    if reasoning_content:
+                        raw_content = f"<think>{reasoning_content}</think>{content}"
                     else:
-                        delay = min(base_delay * (2 ** attempt), max_delay)
+                        raw_content = content
+                    if not raw_content:
+                        raise LLMAdapterError("Empty response from provider.")
 
-                    logger.warning("API error (attempt %d/%d): %s. Retrying in %.1fs...", attempt + 1, max_retries, exc, delay)
-                    time.sleep(delay)
-                else:
-                    # Final attempt failed
-                    raise LLMAdapterError(f"Provider error after {max_retries} attempts: {exc}") from exc
+                    # Clean content for return
+                    final_content = llm_final_content(raw_content)
+                    if not final_content:
+                        raise LLMAdapterError("Response not in the expected format.")
+
+                    break  # Success, exit retry loop
+                except Exception as exc:
+                    if attempt < max_retries - 1:
+                        # Honour Retry-After header for 429 rate-limit responses
+                        retry_after = None
+                        try:
+                            from openai import RateLimitError as _RLE
+                            if isinstance(exc, _RLE):
+                                retry_after = float(
+                                    getattr(getattr(exc, "response", None), "headers", {}).get("retry-after", 0)
+                                    or getattr(exc, "retry_after", 0)
+                                    or 0
+                                ) or None
+                        except Exception:
+                            pass
+
+                        if retry_after and retry_after > 0:
+                            delay = retry_after
+                        else:
+                            delay = min(base_delay * (2 ** attempt), max_delay)
+
+                        logger.warning("API error (attempt %d/%d): %s. Retrying in %.1fs...", attempt + 1, max_retries, exc, delay)
+                        time.sleep(delay)
+                    else:
+                        # Final attempt failed
+                        raise LLMAdapterError(f"Provider error after {max_retries} attempts: {exc}") from exc
+        finally:
+            try:
+                client.close()
+            except Exception:
+                pass
 
 
         # Save to appropriate histories
