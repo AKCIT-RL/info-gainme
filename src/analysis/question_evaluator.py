@@ -13,6 +13,12 @@ The only output is the evaluation results dictionary returned by evaluate_seeker
 which should be saved separately by the caller.
 """
 
+
+class NoTraceError(RuntimeError):
+    """Raised when a conversation has no entry in seeker_traces.jsonl, so there
+    is nothing to evaluate. The caller should treat this as a skip rather than
+    persisting an empty evaluation record."""
+
 from __future__ import annotations
 
 import copy
@@ -375,6 +381,11 @@ def evaluate_seeker_choices(
     # Load seeker traces from the unified seeker_traces.jsonl index.
     logger.info("Loading seeker traces...")
     history = _load_seeker_history(conversation_dir)
+    if not history:
+        raise NoTraceError(
+            f"No seeker_traces entry for {conversation_dir} — "
+            f"synthesize_traces.py likely hasn't covered this conversation yet."
+        )
     logger.info("Found %d turns in seeker traces", len(history))
 
     # Load turns history

@@ -22,7 +22,7 @@ import yaml
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.analysis.question_evaluator import evaluate_seeker_choices, _get_jsonl_index
+from src.analysis.question_evaluator import evaluate_seeker_choices, _get_jsonl_index, NoTraceError
 from src.agents.llm_config import LLMConfig
 from src.utils import ClaryLogger
 
@@ -257,6 +257,16 @@ def process_single_conversation(
             "turns_evaluated": results["summary"]["total_turns_evaluated"],
             "optimal_choices": results["summary"]["optimal_choices"],
             "optimal_choice_rate": results["summary"]["optimal_choice_rate"],
+        }
+    except NoTraceError as e:
+        # Don't persist an empty record — pollutes the JSONL and poisons the
+        # done_keys cache so a later run (after traces are synthesized) skips
+        # this conversation forever.
+        return {
+            "status": "skipped",
+            "conversation_dir": str(conversation_dir),
+            "seeker_path": seeker_key,
+            "reason": str(e),
         }
     except Exception as e:
         logger.error("Error processing %s: %s", conversation_dir, e, exc_info=True)
@@ -655,6 +665,12 @@ def main():
         model=args.pruner_model, api_key=args.api_key,
         base_url=pruner_base_url, temperature=args.temperature,
     )
+
+    # Resolve to absolute path so seeker_path keys match what synthesize_traces.py
+    # writes (it uses an absolute OUTPUTS_BASE = project_root / "outputs"). A
+    # relative outputs_base_dir produces relative seeker_path keys that never
+    # match the absolute keys in seeker_traces.jsonl → silent empty results.
+    args.outputs_base_dir = args.outputs_base_dir.resolve()
 
     unified_jsonl = unified_jsonl_path(args.outputs_base_dir)
     done_keys = _load_done_index(unified_jsonl)
