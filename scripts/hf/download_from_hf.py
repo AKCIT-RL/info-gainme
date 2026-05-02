@@ -113,6 +113,12 @@ def main() -> int:
                 local_dir=str(outputs_dir),
                 token=token,
                 max_workers=args.num_workers,
+                # Conversations live inside conversations.zip (one per
+                # experiment) — see scripts/hf/zip_experiments.py. The
+                # loose conversations/ trees may still be present in the
+                # repo from older uploads; ignore them so we don't pull
+                # the same data twice.
+                ignore_patterns=["**/conversations/**"],
             )
             break
         except Exception as exc:
