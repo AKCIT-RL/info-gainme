@@ -34,6 +34,29 @@ class LLMAdapterError(RuntimeError):
     """Represents errors raised by the `LLMAdapter`."""
 
 
+class ContextLengthExceededError(LLMAdapterError):
+    """Raised when the provider rejects a request because the input is longer
+    than the model's context window. Deterministic failure — never retried."""
+
+
+def _is_context_length_error(exc: Exception) -> bool:
+    """Detect provider-side context-overflow rejections.
+
+    OpenAI-compatible servers (incl. vLLM) return HTTP 400 with a body whose
+    message starts with "This model's maximum context length is..." or
+    "context_length_exceeded". We treat both the status code and the message
+    text as signals so this works across server implementations.
+    """
+    status = getattr(exc, "status_code", None) or getattr(getattr(exc, "response", None), "status_code", None)
+    msg = (str(exc) or "").lower()
+    if status == 400 and ("context length" in msg or "context_length_exceeded" in msg
+                          or "maximum context" in msg or "reduce the length" in msg):
+        return True
+    # Also catch when status isn't readable (e.g. wrapped exception): pure msg match.
+    return ("context length exceeded" in msg or "maximum context length" in msg
+            or "context_length_exceeded" in msg)
+
+
 class LLMAdapter:
     """Minimal adapter for OpenAI-compatible chat completions.
 
@@ -153,6 +176,7 @@ class LLMAdapter:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         response_format: Optional[dict[str, Any]] = None,
+        bail_on_context_length: bool = False,
         # extra: Optional[dict[str, Any]] = None
     ) -> str:
         """Call the provider to generate the next assistant message.
@@ -276,6 +300,13 @@ class LLMAdapter:
 
                     break  # Success, exit retry loop
                 except Exception as exc:
+                    # Context-length errors are deterministic — retrying never
+                    # helps and burns ~45 minutes of backoff per failed call.
+                    # The caller opts in (e.g. judge_eval) so unrelated paths
+                    # keep their existing best-effort retry behavior.
+                    if bail_on_context_length and _is_context_length_error(exc):
+                        raise ContextLengthExceededError(str(exc)) from exc
+
                     if attempt < max_retries - 1:
                         # Honour Retry-After header for 429 rate-limit responses
                         retry_after = None

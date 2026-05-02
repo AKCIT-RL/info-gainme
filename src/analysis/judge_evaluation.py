@@ -33,7 +33,7 @@ from typing import Any, Literal, Optional
 
 from pydantic import ValidationError
 
-from ..agents.llm_adapter import LLMAdapter
+from ..agents.llm_adapter import LLMAdapter, ContextLengthExceededError
 from ..agents.llm_config import LLMConfig
 from ..data_types import OracleResponse, PrunerResponse
 from ..utils.utils import llm_final_content, parse_first_json_object
@@ -42,6 +42,35 @@ logger = logging.getLogger(__name__)
 
 Kind = Literal["oracle", "pruner"]
 OUTPUT_FILENAME = {"oracle": "oracle_judge_eval.json", "pruner": "pruner_judge_eval.json"}
+
+
+# --- token estimation (proxy: tiktoken cl100k_base; not the judge's real
+# tokenizer, but accurate enough for a "definitely-too-long" cap). ---
+_TIKTOKEN_ENC = None
+
+
+def _estimate_tokens(text: str) -> int:
+    """Approximate token count using tiktoken cl100k_base. Falls back to
+    chars/4 if tiktoken is unavailable. The judge model has its own tokenizer,
+    so this is only a safety estimate to skip clearly-overlong inputs."""
+    global _TIKTOKEN_ENC
+    if _TIKTOKEN_ENC is None:
+        try:
+            import tiktoken
+            _TIKTOKEN_ENC = tiktoken.get_encoding("cl100k_base")
+        except Exception:
+            _TIKTOKEN_ENC = False  # mark as unavailable
+    if _TIKTOKEN_ENC is False:
+        return max(1, len(text) // 4)
+    return len(_TIKTOKEN_ENC.encode(text))
+
+
+def _estimate_messages_tokens(messages: list[dict[str, str]]) -> int:
+    """Sum content tokens + ~4 per message for chat-template overhead."""
+    return sum(
+        _estimate_tokens(m.get("content", "") or "") + 4
+        for m in messages
+    )
 
 _ORACLE_RESPONSE_FORMAT = {
     "type": "json_schema",
@@ -184,6 +213,10 @@ def _call_judge(
     cleaned = worker.generate(
         messages=messages, stateless=True,
         response_format=response_format, add_to_history=False,
+        # Judge inputs can exceed the judge model's context window. The retry
+        # loop never recovers from that — fail fast so the caller marks the
+        # turn skipped instead of burning ~45 min of useless backoff.
+        bail_on_context_length=True,
     )
     raw = worker.reasoning_history[-1]["content"] if worker.reasoning_history else None
     return cleaned, raw
@@ -228,6 +261,7 @@ def _judge_oracle_turn(
     asst_idx: int,
     user_idx: Optional[int],
     adapter: LLMAdapter,
+    max_input_tokens: Optional[int] = None,
 ) -> dict[str, Any]:
     if user_idx is None:
         return {"turn_index": turn.get("turn_index", turn_idx + 1),
@@ -238,8 +272,23 @@ def _judge_oracle_turn(
     qwen_raw = _reasoning_at(reasoning_history, asst_idx)
     messages = history[: user_idx + 1]
 
+    if max_input_tokens is not None:
+        n_tokens = _estimate_messages_tokens(messages)
+        if n_tokens > max_input_tokens:
+            return {"turn_index": turn.get("turn_index", turn_idx + 1),
+                    "question": turn.get("question", {}).get("text", ""),
+                    "qwen_answer": qwen["answer"], "qwen_rationale": qwen["rationale"],
+                    "qwen_raw": qwen_raw,
+                    "skipped": f"input too long: ~{n_tokens} tokens > {max_input_tokens}"}
+
     try:
         cleaned, judge_raw = _call_judge(adapter, messages, _ORACLE_RESPONSE_FORMAT)
+    except ContextLengthExceededError as exc:
+        return {"turn_index": turn.get("turn_index", turn_idx + 1),
+                "question": turn.get("question", {}).get("text", ""),
+                "qwen_answer": qwen["answer"], "qwen_rationale": qwen["rationale"],
+                "qwen_raw": qwen_raw,
+                "skipped": f"context_length_exceeded: {exc}"}
     except Exception as exc:
         logger.warning("Judge oracle call failed (turn %d): %s", turn_idx + 1, exc)
         return {"turn_index": turn.get("turn_index", turn_idx + 1),
@@ -270,6 +319,7 @@ def _judge_pruner_turn(
     system_msg: Optional[dict[str, str]],
     target_label: str,
     adapter: LLMAdapter,
+    max_input_tokens: Optional[int] = None,
 ) -> dict[str, Any]:
     if user_idx is None or system_msg is None:
         return {"turn_index": turn.get("turn_index", turn_idx + 1),
@@ -280,9 +330,25 @@ def _judge_pruner_turn(
     qwen_raw = _reasoning_at(reasoning_history, asst_idx)
     user_msg = history[user_idx]
     active = _parse_active_from_user(user_msg.get("content", ""))
+    messages = [system_msg, user_msg]
+
+    if max_input_tokens is not None:
+        n_tokens = _estimate_messages_tokens(messages)
+        if n_tokens > max_input_tokens:
+            return {"turn_index": turn.get("turn_index", turn_idx + 1),
+                    "question": turn.get("question", {}).get("text", ""),
+                    "answer": turn.get("answer", {}).get("text", ""),
+                    "qwen_keep_labels_count": len(qwen["keep_labels"]),
+                    "skipped": f"input too long: ~{n_tokens} tokens > {max_input_tokens}"}
 
     try:
-        cleaned, judge_raw = _call_judge(adapter, [system_msg, user_msg], _PRUNER_RESPONSE_FORMAT)
+        cleaned, judge_raw = _call_judge(adapter, messages, _PRUNER_RESPONSE_FORMAT)
+    except ContextLengthExceededError as exc:
+        return {"turn_index": turn.get("turn_index", turn_idx + 1),
+                "question": turn.get("question", {}).get("text", ""),
+                "answer": turn.get("answer", {}).get("text", ""),
+                "qwen_keep_labels_count": len(qwen["keep_labels"]),
+                "skipped": f"context_length_exceeded: {exc}"}
     except Exception as exc:
         logger.warning("Judge pruner call failed (turn %d): %s", turn_idx + 1, exc)
         return {"turn_index": turn.get("turn_index", turn_idx + 1),
@@ -366,6 +432,7 @@ def evaluate_conversation(
     ctx: ConversationContext,
     adapter: LLMAdapter,
     turn_workers: int = 4,
+    max_input_tokens: Optional[int] = None,
 ) -> dict[str, Any]:
     if kind == "oracle":
         history = ctx.oracle_history
@@ -389,9 +456,11 @@ def evaluate_conversation(
         uidx = preceding.get(aidx)
         turn = ctx.turns[i] if i < len(ctx.turns) else {}
         if kind == "oracle":
-            return _judge_oracle_turn(i, turn, history, reasoning, aidx, uidx, adapter)
+            return _judge_oracle_turn(i, turn, history, reasoning, aidx, uidx, adapter,
+                                      max_input_tokens=max_input_tokens)
         return _judge_pruner_turn(i, turn, history, reasoning, aidx, uidx,
-                                  system_msg, ctx.target_label, adapter)
+                                  system_msg, ctx.target_label, adapter,
+                                  max_input_tokens=max_input_tokens)
 
     n = min(len(asst_idx), len(ctx.turns))
     results: dict[int, dict[str, Any]] = {}
@@ -437,12 +506,16 @@ def run_eval(
     adapter: LLMAdapter,
     turn_workers: int = 4,
     overwrite: bool = False,
+    max_input_tokens: Optional[int] = None,
 ) -> tuple[Path, bool]:
     """Evaluate one conversation. Returns ``(output_path, was_skipped)``."""
     out = conv_dir / OUTPUT_FILENAME[kind]
     if not overwrite and _already_done(out, adapter.config.model):
         return out, True
-    result = evaluate_conversation(kind, load_conversation(conv_dir), adapter, turn_workers)
+    result = evaluate_conversation(
+        kind, load_conversation(conv_dir), adapter, turn_workers,
+        max_input_tokens=max_input_tokens,
+    )
     out.write_text(json.dumps(result, ensure_ascii=False, indent=2))
     return out, False
 

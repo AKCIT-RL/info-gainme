@@ -57,21 +57,19 @@ RUN_INDEX="${RUN_INDEX-1}"
 SAMPLE_INDICES="${SAMPLE_INDICES-10,20,30,40,50,60,70,80,90}"
 
 # Default: gpt-oss-120b em h2:8836 (aluno_daniel/cemig_grpo, max_len=12000).
-# MAX_INPUT_TOKENS reserva orçamento de output e cabeçalhos do chat template:
-# usar ~1k abaixo do max_model_len do server (estimativa por tiktoken cl100k).
+# Context overflows são detectados pelo próprio server (HTTP 400) e marcados
+# como turn skipped pelo judge_evaluation — sem tokenização preventiva.
 BACKEND="${BACKEND:-gpt_oss_h2}"
 case "$BACKEND" in
     gpt_oss_h2)
         BASE_URL="${BASE_URL:-http://10.100.0.112:8836/v1}"
         API_KEY="${API_KEY:-vllm_ceia_100}"
         MODEL="${MODEL:-openai/gpt-oss-120b}"
-        MAX_INPUT_TOKENS="${MAX_INPUT_TOKENS:-11000}"
         ;;
     qwen3_8b_h3)
         BASE_URL="${BASE_URL:-http://10.100.0.113:8800/v1}"
         API_KEY="${API_KEY:-EMPTY}"
         MODEL="${MODEL:-Qwen3-8B}"
-        MAX_INPUT_TOKENS="${MAX_INPUT_TOKENS:-30000}"
         ;;
     *) echo "BACKEND desconhecido: $BACKEND" >&2; exit 1 ;;
 esac
@@ -98,6 +96,10 @@ EXTRA_FLAGS=""
 [[ -n "${RUN_INDEX}" ]]        && EXTRA_FLAGS+=" --run-index ${RUN_INDEX}"
 [[ -n "${SAMPLE_INDICES}" ]]   && EXTRA_FLAGS+=" --sample-indices ${SAMPLE_INDICES}"
 [[ "${FORCE}" == "1" ]]        && EXTRA_FLAGS+=" --force"
+# MAX_INPUT_TOKENS is no longer needed — judge_evaluation now bails on the
+# server's 400 BadRequestError ("context length exceeded") after a single try
+# and marks the turn skipped. Set MAX_INPUT_TOKENS to opt back into the
+# tiktoken-based pre-skip if desired.
 [[ -n "${MAX_INPUT_TOKENS}" ]] && EXTRA_FLAGS+=" --max-input-tokens ${MAX_INPUT_TOKENS}"
 
 mkdir -p "${PROJECT_DIR}/logs"
