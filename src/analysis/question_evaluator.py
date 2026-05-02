@@ -13,12 +13,6 @@ The only output is the evaluation results dictionary returned by evaluate_seeker
 which should be saved separately by the caller.
 """
 
-
-class NoTraceError(RuntimeError):
-    """Raised when a conversation has no entry in seeker_traces.jsonl, so there
-    is nothing to evaluate. The caller should treat this as a skip rather than
-    persisting an empty evaluation record."""
-
 from __future__ import annotations
 
 import copy
@@ -42,6 +36,12 @@ from ..domain.objects.loader import load_flat_object_candidates
 from ..utils import ClaryLogger
 
 logger = ClaryLogger.get_logger(__name__)
+
+
+class NoTraceError(RuntimeError):
+    """Raised when a conversation has no entry in seeker_traces.jsonl, so there
+    is nothing to evaluate. The caller should treat this as a skip rather than
+    persisting an empty evaluation record."""
 
 
 # ---------------------------------------------------------------------------
