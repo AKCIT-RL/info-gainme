@@ -33,7 +33,8 @@ JUDGE_MODEL="${JUDGE_MODEL:-openai/gpt-oss-120b}"       # HF id / served model
 JUDGE_MODEL_NAME="${JUDGE_MODEL_NAME:-gpt-oss-120b}"    # --served-model-name
 JUDGE_GPU_MEM="${JUDGE_GPU_MEM:-0.90}"
 JUDGE_MAX_LEN="${JUDGE_MAX_LEN:-65536}"
-JUDGE_TP_SIZE="${JUDGE_TP_SIZE:-2}"                    # tensor-parallel-size
+# JUDGE_TP_SIZE auto-detects from --gres=gpu:N when not set explicitly.
+# (Resolved later, after CUDA_VISIBLE_DEVICES is available.)
 # Auto-detect reasoning parser from served-model-name. Required so the model
 # can emit <think> blocks alongside structured JSON output (without the parser,
 # response_format=strict json_schema collapses thinking into nothing).
@@ -104,6 +105,8 @@ if [ -z "${CUDA_VISIBLE_DEVICES}" ]; then
 fi
 IFS=',' read -ra GPU_ARRAY <<< "${CUDA_VISIBLE_DEVICES}"
 TOTAL_GPUS=${#GPU_ARRAY[@]}
+# Default TP to all allocated GPUs so --gres=gpu:N alone does the right thing.
+JUDGE_TP_SIZE="${JUDGE_TP_SIZE:-${TOTAL_GPUS}}"
 if [ "${TOTAL_GPUS}" -lt "${JUDGE_TP_SIZE}" ]; then
     echo "ERROR: JUDGE_TP_SIZE=${JUDGE_TP_SIZE} but only ${TOTAL_GPUS} GPUs allocated"
     exit 1
@@ -133,7 +136,9 @@ start_vllm() {
         --tensor-parallel-size ${JUDGE_TP_SIZE} \
         --gpu-memory-utilization ${JUDGE_GPU_MEM} \
         --max-num-seqs ${VLLM_MAX_NUM_SEQS} \
-        --max-model-len ${JUDGE_MAX_LEN}"
+        --max-num-batched-tokens 16384 \
+        --max-model-len ${JUDGE_MAX_LEN} \
+        --enable-prefix-caching"
     [ "${VLLM_ENFORCE_EAGER}" = "true" ] && cmd="${cmd} --enforce-eager"
     [ -n "${JUDGE_REASONING_PARSER}" ] && cmd="${cmd} --reasoning-parser ${JUDGE_REASONING_PARSER}"
     [ -n "${JUDGE_EXTRA_ARGS}" ] && cmd="${cmd} ${JUDGE_EXTRA_ARGS}"
