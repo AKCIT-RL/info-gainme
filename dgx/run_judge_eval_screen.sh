@@ -42,6 +42,7 @@ if [ -z "${STY:-}" ] && [ "${FOREGROUND:-0}" != "1" ]; then
         BACKEND='${BACKEND:-}' BASE_URL='${BASE_URL:-}' API_KEY='${API_KEY:-}' MODEL='${MODEL:-}' \
         WHAT='${WHAT:-}' RUN_INDEX='${RUN_INDEX:-}' SAMPLE_INDICES='${SAMPLE_INDICES:-}' \
         WORKERS='${WORKERS:-}' TURN_WORKERS='${TURN_WORKERS:-}' FORCE='${FORCE:-}' \
+        MAX_INPUT_TOKENS='${MAX_INPUT_TOKENS:-}' \
         bash '${BASH_SOURCE[0]}' ${1:-}; exec bash"
     echo "  screen -r judge-eval"
     echo "  tail -f ${PROJECT_DIR}/logs/judge-eval-latest.out"
@@ -56,17 +57,21 @@ RUN_INDEX="${RUN_INDEX-1}"
 SAMPLE_INDICES="${SAMPLE_INDICES-10,20,30,40,50,60,70,80,90}"
 
 # Default: gpt-oss-120b em h2:8836 (aluno_daniel/cemig_grpo, max_len=12000).
+# MAX_INPUT_TOKENS reserva orçamento de output e cabeçalhos do chat template:
+# usar ~1k abaixo do max_model_len do server (estimativa por tiktoken cl100k).
 BACKEND="${BACKEND:-gpt_oss_h2}"
 case "$BACKEND" in
     gpt_oss_h2)
         BASE_URL="${BASE_URL:-http://10.100.0.112:8836/v1}"
         API_KEY="${API_KEY:-vllm_ceia_100}"
         MODEL="${MODEL:-openai/gpt-oss-120b}"
+        MAX_INPUT_TOKENS="${MAX_INPUT_TOKENS:-11000}"
         ;;
     qwen3_8b_h3)
         BASE_URL="${BASE_URL:-http://10.100.0.113:8800/v1}"
         API_KEY="${API_KEY:-EMPTY}"
         MODEL="${MODEL:-Qwen3-8B}"
+        MAX_INPUT_TOKENS="${MAX_INPUT_TOKENS:-30000}"
         ;;
     *) echo "BACKEND desconhecido: $BACKEND" >&2; exit 1 ;;
 esac
@@ -90,9 +95,10 @@ else
 fi
 
 EXTRA_FLAGS=""
-[[ -n "${RUN_INDEX}" ]]      && EXTRA_FLAGS+=" --run-index ${RUN_INDEX}"
-[[ -n "${SAMPLE_INDICES}" ]] && EXTRA_FLAGS+=" --sample-indices ${SAMPLE_INDICES}"
-[[ "${FORCE}" == "1" ]]      && EXTRA_FLAGS+=" --force"
+[[ -n "${RUN_INDEX}" ]]        && EXTRA_FLAGS+=" --run-index ${RUN_INDEX}"
+[[ -n "${SAMPLE_INDICES}" ]]   && EXTRA_FLAGS+=" --sample-indices ${SAMPLE_INDICES}"
+[[ "${FORCE}" == "1" ]]        && EXTRA_FLAGS+=" --force"
+[[ -n "${MAX_INPUT_TOKENS}" ]] && EXTRA_FLAGS+=" --max-input-tokens ${MAX_INPUT_TOKENS}"
 
 mkdir -p "${PROJECT_DIR}/logs"
 
@@ -112,6 +118,7 @@ echo "Judge model:   ${MODEL}"
 echo "What:          ${WHAT} (${TARGETS[*]})"
 echo "Workers:       ${WORKERS} × turn-workers ${TURN_WORKERS}"
 echo "Filters:       run_index=${RUN_INDEX:-all} sample_indices=${SAMPLE_INDICES:-all}"
+echo "Max input:     ${MAX_INPUT_TOKENS:-(no pre-skip)} tokens (turns above this are marked skipped)"
 echo "Target:        ${TARGET_PATH:-(all CoT runs.csv)}"
 echo "Log:           ${LOG_FILE}"
 echo "Started:       $(date)"
