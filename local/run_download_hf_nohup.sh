@@ -16,10 +16,17 @@ mkdir -p "$LOG_DIR"
 TS=$(date +%Y%m%d_%H%M%S)
 LOG="$LOG_DIR/download_hf_${TS}.log"
 
+# Use .venv python if available, else fall back to python3
+PYTHON="$PROJECT_DIR/.venv/bin/python"
+if [[ ! -x "$PYTHON" ]]; then
+    PYTHON="python3"
+fi
+
 echo "Starting HF download in background..."
+echo "Python: $PYTHON"
 echo "Log: $LOG"
 
-nohup python3 "$PROJECT_DIR/scripts/hf/download_from_hf.py" "$@" > "$LOG" 2>&1 &
+nohup "$PYTHON" "$PROJECT_DIR/scripts/hf/download_from_hf.py" "$@" > "$LOG" 2>&1 &
 PID=$!
 echo "PID: $PID"
 echo ""
