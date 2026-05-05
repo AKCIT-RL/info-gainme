@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Executa download_from_hf.py em background via nohup, salvando log.
+# Executa download_from_hf.py numa sessão screen com uv run, salvando log.
 #
 # Usage:
 #   bash local/run_download_hf_nohup.sh [args...]
@@ -15,21 +15,20 @@ mkdir -p "$LOG_DIR"
 
 TS=$(date +%Y%m%d_%H%M%S)
 LOG="$LOG_DIR/download_hf_${TS}.log"
+SESSION="download_hf_${TS}"
 
-# Use .venv python if available, else fall back to python3
-PYTHON="$PROJECT_DIR/.venv/bin/python"
-if [[ ! -x "$PYTHON" ]]; then
-    PYTHON="python3"
-fi
-
-echo "Starting HF download in background..."
-echo "Python: $PYTHON"
+echo "Starting HF download in screen session: $SESSION"
 echo "Log: $LOG"
 
-nohup "$PYTHON" "$PROJECT_DIR/scripts/hf/download_from_hf.py" "$@" > "$LOG" 2>&1 &
-PID=$!
-echo "PID: $PID"
+screen -dmS "$SESSION" bash -c "
+  cd '$PROJECT_DIR'
+  uv run python scripts/hf/download_from_hf.py $* 2>&1 | tee '$LOG'
+  echo 'Done — press any key to close'
+  read -r
+"
+
 echo ""
 echo "Monitor with:"
 echo "  tail -f $LOG"
-echo "  kill $PID   # to stop"
+echo "  screen -r $SESSION   # attach to session"
+echo "  screen -X -S $SESSION quit   # kill session"
