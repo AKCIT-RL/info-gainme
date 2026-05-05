@@ -112,9 +112,6 @@ echo \"Total:   \$TOTAL\"
 echo \"Finished: \$(date)\"
 echo '=================================================='
 } 2>&1 | tee \"\$LOG\"
-echo ''
-echo 'Press any key to close'
-read -r
 "
 
 echo ""

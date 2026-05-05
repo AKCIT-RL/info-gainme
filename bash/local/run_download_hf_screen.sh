@@ -23,8 +23,6 @@ echo "Log: $LOG"
 screen -dmS "$SESSION" bash -c "
   cd '$PROJECT_DIR'
   uv run python scripts/hf/download_from_hf.py $* 2>&1 | tee '$LOG'
-  echo 'Done — press any key to close'
-  read -r
 "
 
 echo ""
