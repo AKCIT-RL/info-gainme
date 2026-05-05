@@ -31,6 +31,10 @@ set -o pipefail
 # ---------------- configuration ----------------
 JUDGE_MODEL="${JUDGE_MODEL:-openai/gpt-oss-120b}"       # HF id / served model
 JUDGE_MODEL_NAME="${JUDGE_MODEL_NAME:-gpt-oss-120b}"    # --served-model-name
+# JUDGE_GPU_MEM default = 0.90 (vs 0.95 em run_full_benchmark.sh). O judge usa
+# JUDGE_MAX_LEN=65536 vs full_benchmark default 32000, então o KV cache cresce
+# ~2× em pico → margem de 5pp evita OOM. Em B200 com folga de VRAM, dá pra
+# subir pra 0.95 via --export=ALL,JUDGE_GPU_MEM=0.95,...
 JUDGE_GPU_MEM="${JUDGE_GPU_MEM:-0.90}"
 JUDGE_MAX_LEN="${JUDGE_MAX_LEN:-65536}"
 # JUDGE_TP_SIZE auto-detects from --gres=gpu:N when not set explicitly.
@@ -73,18 +77,25 @@ SHARED_GROUP="sd22"
 SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 
 export VLLM_MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-32}"
+# VLLM_MAX_NUM_BATCHED_TOKENS controla o tamanho do batch de prefill por step.
+# Default 16384 = mesmo do run_full_benchmark.sh (paridade); subir pra 32768
+# ajuda quando prompts são longos E concorrência é alta (caso do judge —
+# active-candidates list pode ser grande).
+export VLLM_MAX_NUM_BATCHED_TOKENS="${VLLM_MAX_NUM_BATCHED_TOKENS:-16384}"
 export VLLM_ENGINE_READY_TIMEOUT_S="${VLLM_ENGINE_READY_TIMEOUT_S:-3600}"
 export VLLM_LOGGING_LEVEL="${VLLM_LOGGING_LEVEL:-INFO}"
 export HF_HOME=/workspace/hf-cache
 source "${PROJECT_DIR}/.env"
 export HF_TOKEN="${HF_TOKEN:?HF_TOKEN não definido no .env}"
 
-# gpt-oss-120b hangs in CUDA graph capture on vLLM 0.16 + MXFP4 (intermittent
-# deadlock during shm_broadcast under concurrent traffic). Force eager always
-# for the judge — output is short JSON (~500 tokens), CUDA graphs don't matter
-# for throughput here. Override with VLLM_ENFORCE_EAGER=false if you've
-# verified the bug is fixed in your vLLM version.
-VLLM_ENFORCE_EAGER="${VLLM_ENFORCE_EAGER:-true}"
+# VLLM_ENFORCE_EAGER policy (auto-resolved depois que JUDGE_TP_SIZE é conhecido):
+#   - gpt-oss-120b MXFP4 + TP≥2: SEMPRE true (deadlock histórico em
+#     CUDA graphs/shm_broadcast — visto em jobs 19362). Override só se você
+#     confirmou que a versão do vLLM não tem mais o bug.
+#   - B200 com modelo não-gpt-oss ou TP=1: false (CUDA graphs valem a pena).
+#   - H100 / outros: true (startup mais rápido, throughput marginal).
+# Override explícito sempre vence: VLLM_ENFORCE_EAGER=true|false.
+# Resolvido em "GPU allocation" após TP ser conhecido.
 
 mkdir -p "${PROJECT_DIR}/logs" "${PROJECT_DIR}/hf-cache"
 LOGS_DIR_HOST="${PROJECT_DIR}/logs"
@@ -113,6 +124,18 @@ if [ "${TOTAL_GPUS}" -lt "${JUDGE_TP_SIZE}" ]; then
 fi
 JUDGE_GPUS=$(IFS=,; echo "${GPU_ARRAY[*]:0:${JUDGE_TP_SIZE}}")
 
+# Auto-resolver enforce-eager agora que JUDGE_TP_SIZE é conhecido (ver policy
+# no topo). Override explícito (VLLM_ENFORCE_EAGER já set) sempre vence.
+if [ -z "${VLLM_ENFORCE_EAGER:-}" ]; then
+    if [[ "${JUDGE_MODEL_NAME,,}" == *gpt-oss* ]] && [ "${JUDGE_TP_SIZE}" -ge 2 ]; then
+        VLLM_ENFORCE_EAGER="true"   # gpt-oss MXFP4 + TP≥2 ⇒ deadlock-prone
+    elif [[ "${SLURM_JOB_PARTITION:-}" == *b200* ]]; then
+        VLLM_ENFORCE_EAGER="false"  # CUDA graphs valem a pena em Blackwell
+    else
+        VLLM_ENFORCE_EAGER="true"   # H100 / fallback seguro
+    fi
+fi
+
 echo "=========================================="
 echo "Judge eval — $(date)"
 echo "Judge model:  ${JUDGE_MODEL} (served as ${JUDGE_MODEL_NAME})"
@@ -122,6 +145,7 @@ echo "Sample:       run_index=${RUN_INDEX:-all}   sample_indices=${SAMPLE_INDICE
 echo "What:         ${WHAT}"
 echo "Workers:      ${WORKERS} × ${TURN_WORKERS} = $(( WORKERS * TURN_WORKERS )) concurrent LLM calls"
 echo "Reasoning:    ${JUDGE_REASONING_PARSER}"
+echo "VLLM tuning:  enforce_eager=${VLLM_ENFORCE_EAGER}  max_num_seqs=${VLLM_MAX_NUM_SEQS}  max_num_batched_tokens=${VLLM_MAX_NUM_BATCHED_TOKENS}  gpu_mem=${JUDGE_GPU_MEM}"
 echo "=========================================="
 
 # ---------------- start vLLM ----------------
@@ -136,7 +160,7 @@ start_vllm() {
         --tensor-parallel-size ${JUDGE_TP_SIZE} \
         --gpu-memory-utilization ${JUDGE_GPU_MEM} \
         --max-num-seqs ${VLLM_MAX_NUM_SEQS} \
-        --max-num-batched-tokens 16384 \
+        --max-num-batched-tokens ${VLLM_MAX_NUM_BATCHED_TOKENS} \
         --max-model-len ${JUDGE_MAX_LEN} \
         --enable-prefix-caching"
     [ "${VLLM_ENFORCE_EAGER}" = "true" ] && cmd="${cmd} --enforce-eager"
