@@ -2,11 +2,11 @@
 # Executa download_from_hf.py numa sessão screen com uv run, salvando log.
 #
 # Usage:
-#   bash local/run_download_hf_nohup.sh [args...]
+#   bash local/run_download_hf_screen.sh [args...]
 #
 # Todos os argumentos são repassados para download_from_hf.py, ex:
-#   bash local/run_download_hf_nohup.sh --num-workers 8
-#   bash local/run_download_hf_nohup.sh --repo-id akcit-rl/info-gainme --num-workers 8
+#   bash local/run_download_hf_screen.sh --num-workers 8
+#   bash local/run_download_hf_screen.sh --repo-id akcit-rl/info-gainme --num-workers 8
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
