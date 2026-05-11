@@ -17,7 +17,7 @@
 
 set -euo pipefail
 
-PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 PYTHON="${PROJECT_DIR}/.venv/bin/python3"
 BACKEND="${BACKEND:-qwen235b}"
 RUN_TS="${RUN_TS:-$(date +%Y%m%d-%H%M%S)}"
@@ -73,8 +73,8 @@ EXTRA_FLAGS="${*:-}"
 if [ -n "${STY:-}" ]; then
     cd "${PROJECT_DIR}"
     mkdir -p logs
-    LOG_FILE="${LOG_FILE:-${PROJECT_DIR}/logs/classify-${BACKEND}-${RUN_TS}.out}"
-    ln -sfn "${LOG_FILE}" "${PROJECT_DIR}/logs/classify-latest.out"
+    LOG_FILE="${LOG_FILE:-${PROJECT_DIR}/logs/classify-${BACKEND}-${RUN_TS}.log}"
+    ln -sfn "${LOG_FILE}" "${PROJECT_DIR}/logs/classify-latest.log"
     if [ -z "${__LOG_REDIRECTED__:-}" ]; then
         export __LOG_REDIRECTED__=1
         exec > >(tee -a "${LOG_FILE}") 2>&1
@@ -119,5 +119,5 @@ else
     # script faz seu próprio log timestamped (não precisa de tee aqui)
     screen -dmS classify bash -c "RUN_TS='${RUN_TS}' BACKEND='${BACKEND}' bash '${BASH_SOURCE[0]}' ${EXTRA_FLAGS}; exec bash"
     echo "  screen -r classify"
-    echo "  tail -f ${PROJECT_DIR}/logs/classify-latest.out"
+    echo "  tail -f ${PROJECT_DIR}/logs/classify-latest.log"
 fi

@@ -111,6 +111,7 @@ def main() -> int:
                 repo_id=repo_id,
                 repo_type="dataset",
                 local_dir=str(outputs_dir),
+                local_dir_use_symlinks=False,
                 token=token,
                 max_workers=args.num_workers,
                 # Conversations live inside conversations.zip (one per
