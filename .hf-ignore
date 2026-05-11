@@ -1,0 +1,35 @@
+# Padrões de exclusão para download_from_hf.py
+# Formato: glob (huggingface_hub.snapshot_download / fnmatch).
+# Use --ignore-file .hf-ignore ao baixar.
+#
+# Experimentos antigos substituídos pelas versões `_with_kickoff`
+# (canonical agora é o sufixo with_kickoff; os dirs sem sufixo no HF
+# são resíduo de uploads anteriores e foram removidos localmente).
+
+# Qwen3-0.6B (PO)
+**/diseases_160_0.6b_po_cot/**
+**/diseases_160_0.6b_po_no_cot/**
+**/geo_160_0.6b_po_cot/**
+**/geo_160_0.6b_po_no_cot/**
+**/objects_158_0.6b_po_cot/**
+**/objects_158_0.6b_po_no_cot/**
+
+# Nemotron-Cascade-8B (FO/IO/PO)
+**/diseases_160_nemotron8b_fo_cot/**
+**/diseases_160_nemotron8b_fo_no_cot/**
+**/diseases_160_nemotron8b_io_cot/**
+**/diseases_160_nemotron8b_io_no_cot/**
+**/diseases_160_nemotron8b_po_cot/**
+**/diseases_160_nemotron8b_po_no_cot/**
+**/geo_160_nemotron8b_fo_cot/**
+**/geo_160_nemotron8b_fo_no_cot/**
+**/geo_160_nemotron8b_io_cot/**
+**/geo_160_nemotron8b_io_no_cot/**
+**/geo_160_nemotron8b_po_cot/**
+**/geo_160_nemotron8b_po_no_cot/**
+**/objects_158_nemotron8b_fo_cot/**
+**/objects_158_nemotron8b_fo_no_cot/**
+**/objects_158_nemotron8b_io_cot/**
+**/objects_158_nemotron8b_io_no_cot/**
+**/objects_158_nemotron8b_po_cot/**
+**/objects_158_nemotron8b_po_no_cot/**
