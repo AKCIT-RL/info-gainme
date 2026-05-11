@@ -98,7 +98,7 @@ if configs_dir.exists():
 
 # ── Participant tracking ─────────────────────────────────────────────────
 # Persisted to disk so participants survive server restarts.
-PARTICIPANTS_FILE = PROJECT_ROOT / "human_baseline" / "participants.json"
+PARTICIPANTS_FILE = PROJECT_ROOT / "outputs" / "human_baseline" / "participants.json"
 PARTICIPANTS_LOCK = threading.Lock()
 
 # Configs eligible for auto-assignment — production configs only.
@@ -259,7 +259,7 @@ GAMES_LOCK = threading.Lock()
 # ── Game persistence ───────────────────────────────────────────────────────
 # Games are serialized to disk after every turn so they survive server restarts.
 # The snapshot captures everything needed to reconstruct oracle/pruner context.
-GAME_SNAPSHOTS_DIR = PROJECT_ROOT / "human_baseline" / "game_snapshots"
+GAME_SNAPSHOTS_DIR = PROJECT_ROOT / "outputs" / "human_baseline" / "game_snapshots"
 GAME_SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
