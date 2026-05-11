@@ -13,12 +13,12 @@
 # Forçar execução no terminal atual (sem screen):
 #   FOREGROUND=1 bash dgx/run_evaluate_choices_screen.sh
 #
-# Cada run grava em logs/eval-choices-<backend>-<YYYYMMDD-HHMMSS>.out + atualiza
-# logs/eval-choices-latest.out (symlink) pra facilitar tail -f.
+# Cada run grava em logs/eval-choices-<backend>-<YYYYMMDD-HHMMSS>.log + atualiza
+# logs/eval-choices-latest.log (symlink) pra facilitar tail -f.
 #
 # Acompanhar:
 #   screen -r eval-choices
-#   tail -f logs/eval-choices-latest.out
+#   tail -f logs/eval-choices-latest.log
 #
 # Variáveis de ambiente (com defaults):
 #   BACKEND       qwen3_8b_h2 (default — H100-02 :8461) | qwen3_8b_h3 (H100-03 :9200, raro)
@@ -46,7 +46,7 @@ if [ -z "${STY:-}" ] && [ "${FOREGROUND:-0}" != "1" ]; then
     echo "Iniciando screen 'eval-choices' (run=${RUN_TS})..."
     screen -dmS eval-choices bash -c "RUN_TS='${RUN_TS}' BACKEND='${BACKEND:-}' MAX_WORKERS='${MAX_WORKERS:-}' FORCE='${FORCE:-}' DRY_RUN='${DRY_RUN:-}' TEMPERATURE='${TEMPERATURE:-}' ONLY_RUN_INDEX='${ONLY_RUN_INDEX:-}' bash '${BASH_SOURCE[0]}' ${1:-}; exec bash"
     echo "  screen -r eval-choices"
-    echo "  tail -f ${PROJECT_DIR}/logs/eval-choices-latest.out"
+    echo "  tail -f ${PROJECT_DIR}/logs/eval-choices-latest.log"
     exit 0
 fi
 
@@ -79,8 +79,8 @@ EXTRA_FLAGS=""
 mkdir -p "${PROJECT_DIR}/logs"
 
 # Log timestamped + symlink "latest". Override via LOG_FILE=/path/to/log.
-LOG_FILE="${LOG_FILE:-${PROJECT_DIR}/logs/eval-choices-${BACKEND}-${RUN_TS}.out}"
-ln -sfn "${LOG_FILE}" "${PROJECT_DIR}/logs/eval-choices-latest.out"
+LOG_FILE="${LOG_FILE:-${PROJECT_DIR}/logs/eval-choices-${BACKEND}-${RUN_TS}.log}"
+ln -sfn "${LOG_FILE}" "${PROJECT_DIR}/logs/eval-choices-latest.log"
 
 # Re-exec redirecionando stdout+stderr pro log (e ainda mostra na tela via tee).
 # Marcador __LOG_REDIRECTED__ evita loop se o re-exec rodar de novo.
