@@ -273,6 +273,18 @@ class LLMAdapter:
 
                 break  # Success, exit retry loop
             except Exception as exc:
+                # 404 = model not found — permanent error, no point retrying
+                try:
+                    from openai import NotFoundError as _NFE
+                    if isinstance(exc, _NFE):
+                        raise LLMAdapterError(f"Model not found (404): {exc}") from exc
+                except ImportError:
+                    pass
+                # Also catch raw HTTP 404s that may surface as generic errors
+                exc_str = str(exc)
+                if "404" in exc_str and ("not found" in exc_str.lower() or "model" in exc_str.lower()):
+                    raise LLMAdapterError(f"Model not found (404): {exc}") from exc
+
                 if attempt < max_retries - 1:
                     # Honour Retry-After header for 429 rate-limit responses
                     retry_after = None

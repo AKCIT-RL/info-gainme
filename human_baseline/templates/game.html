@@ -79,12 +79,12 @@
         .hint-panel { background: #1a1500; border: 1px solid #e3b34155; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
         .hint-panel h3 { font-size: 0.85rem; color: #e3b341; margin-bottom: 0.5rem; }
         .hint-panel .hint-note { font-size: 0.75rem; color: #8b949e; margin-top: 0.5rem; font-style: italic; }
-        .prompt-panel { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; margin-bottom: 1rem; }
-        .prompt-panel summary { font-size: 0.85rem; color: #8b949e; padding: 0.6rem 1rem; cursor: pointer; user-select: none; list-style: none; display: flex; align-items: center; gap: 0.4rem; }
-        .prompt-panel summary:hover { color: #c9d1d9; }
-        .prompt-panel summary::before { content: '▶'; font-size: 0.6rem; transition: transform 0.15s; }
+        .prompt-panel { background: #111d11; border: 2px solid #3fb95077; border-radius: 8px; margin-bottom: 1rem; }
+        .prompt-panel summary { font-size: 0.95rem; font-weight: 600; color: #3fb950; padding: 0.75rem 1rem; cursor: pointer; user-select: none; list-style: none; display: flex; align-items: center; gap: 0.5rem; }
+        .prompt-panel summary:hover { color: #56d364; }
+        .prompt-panel summary::before { content: '▶'; font-size: 0.65rem; transition: transform 0.15s; }
         .prompt-panel[open] summary::before { transform: rotate(90deg); }
-        .prompt-panel .prompt-body { padding: 1rem 1.2rem 1.2rem; border-top: 1px solid #30363d; max-height: 400px; overflow-y: auto; }
+        .prompt-panel .prompt-body { padding: 1rem 1.2rem 1.2rem; border-top: 1px solid #3fb95033; max-height: 400px; overflow-y: auto; }
 
         /* Markdown rendered prompt */
         .prompt-body h1, .prompt-body h2, .prompt-body h3 {
@@ -150,6 +150,12 @@
             {% endif %}
         </div>
 
+        <!-- Game / Seeker prompt (expanded by default so players read it first) -->
+        <details class="prompt-panel" open>
+            <summary>📋 Game Instructions — read before playing!</summary>
+            <div class="prompt-body" id="prompt-body"></div>
+        </details>
+
         <!-- Candidates panel:
              FO    = live-updated list every turn
              PRIOR = static list shown throughout (LLM has same pool description)
@@ -166,12 +172,6 @@
             <div class="candidates-list">{{ candidates_text }}</div>
         </div>
         {% endif %}
-
-        <!-- Game / Seeker prompt (collapsible, markdown rendered) -->
-        <details class="prompt-panel">
-            <summary>📋 Game Instructions (Seeker System Prompt)</summary>
-            <div class="prompt-body" id="prompt-body"></div>
-        </details>
 
         <!-- Game over (hidden initially) -->
         <div class="game-over hidden" id="game-over-panel">
@@ -195,6 +195,8 @@
             <div class="spinner" id="spinner"></div>
         </div>
 
+        <!-- (retry-pruner-area removed: pruner retries are now automatic) -->
+
         <!-- Q&A History -->
         <div class="history" id="history"></div>
     </div>
@@ -205,8 +207,9 @@
         const displayMode = "{{ display_mode }}";  // FO | PO | HINT | PRIOR
         const askOracleUrl = "{{ url_for('ask_oracle', game_id=game.id) }}";
         const askPruneUrl = "{{ url_for('ask_prune', game_id=game.id) }}";
-        let totalIG = 0;
-        let turnCount = 0;
+        const turnsData = {{ turns_data | tojson }};
+        let totalIG = turnsData.reduce((s, t) => s + (t.info_gain ?? 0), 0);
+        let turnCount = turnsData.length;
         let isSubmitting = false;
 
         const questionInput = document.getElementById('question-input');
@@ -215,9 +218,54 @@
         const statusMsg = document.getElementById('status-msg');
         const history = document.getElementById('history');
 
+        // On page load: if the pruner step is still pending (e.g. page was reloaded while
+        // pruner was running), resume automatically — no user action needed.
+        {% if pending_pruner %}
+        window.addEventListener('DOMContentLoaded', () => {
+            setLoading(true);
+            setStatus('Pruner is analyzing candidates… (resuming)');
+            callPruneWithRetry();
+        });
+        {% endif %}
+
         // Render seeker prompt as markdown
         const rawPrompt = {{ seeker_prompt | tojson }};
         document.getElementById('prompt-body').innerHTML = marked.parse(rawPrompt);
+
+        // Replay turn history on page load (e.g. after a reload)
+        function renderTurnCard(data) {
+            const ig = data.info_gain ?? 0;
+            const igClass = ig > 0 ? '' : (ig === 0 ? 'zero' : 'negative');
+            const igLine = displayMode === 'FO'
+                ? `<div class="turn-ig ${igClass}">IG: ${ig.toFixed(4)} bits · H: ${(data.h_before ?? 0).toFixed(2)} → ${(data.h_after ?? 0).toFixed(2)}</div>`
+                : '';
+            const candidatesDelta = displayMode === 'FO' && data.active_before != null
+                ? `<span>${data.active_before} → ${data.active_after} candidates</span>`
+                : '';
+            const card = document.createElement('div');
+            card.className = 'turn-card';
+            card.innerHTML = `
+                <div class="turn-header">
+                    <span>Turn ${data.turn}/${data.max_turns}</span>
+                    ${candidatesDelta}
+                </div>
+                <div class="turn-q">Q: ${escapeHtml(data.question ?? '')}</div>
+                <div class="turn-a">A: ${escapeHtml(data.oracle_answer ?? '\u2014')}</div>
+                ${igLine}
+            `;
+            return card;
+        }
+
+        if (turnsData.length > 0) {
+            document.getElementById('turn-count').textContent = turnsData[turnsData.length - 1].turn;
+            if (displayMode === 'FO') {
+                document.getElementById('total-ig').textContent = totalIG.toFixed(2);
+            }
+            // Render oldest-first then prepend in reverse so newest appears on top
+            turnsData.slice().reverse().forEach(t => {
+                history.appendChild(renderTurnCard(t));
+            });
+        }
 
         questionInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !isSubmitting) submitQuestion();
@@ -227,7 +275,7 @@
             statusMsg.textContent = msg;
         }
 
-        function setLoading(loading) {
+        function setLoading(loading, keepStatus = false) {
             isSubmitting = loading;
             askBtn.disabled = loading;
             questionInput.disabled = loading;
@@ -235,13 +283,115 @@
                 spinner.classList.add('active');
             } else {
                 spinner.classList.remove('active');
-                setStatus('');
+                if (!keepStatus) setStatus('');
             }
         }
 
         function showExpiredBanner() {
             document.getElementById('expired-banner').style.display = 'block';
             document.getElementById('input-area').classList.add('hidden');
+        }
+
+        function showRetryPruner() { /* no-op: retries are now automatic */ }
+        function hideRetryPruner() { /* no-op */ }
+
+        // ── Shared pruner result handler ───────────────────────────────────────
+        function applyPruneResult(data) {
+            turnCount = data.turn;
+            totalIG += data.info_gain ?? 0;
+            document.getElementById('turn-count').textContent = data.turn;
+            if (displayMode === 'FO') {
+                document.getElementById('active-count').textContent = data.active_after;
+                document.getElementById('entropy-value').textContent = (data.h_after ?? 0).toFixed(2);
+                document.getElementById('total-ig').textContent = totalIG.toFixed(2);
+                document.getElementById('candidates-list').textContent = data.candidates_text;
+                document.getElementById('cand-count').textContent = data.active_after;
+            }
+            const ig = data.info_gain ?? 0;
+            const card = renderTurnCard({
+                turn: data.turn, question: data.question ?? '',
+                oracle_answer: data.oracle_answer ?? '', info_gain: ig,
+                h_before: data.h_before, h_after: data.h_after,
+                active_before: data.active_before, active_after: data.active_after,
+                max_turns: data.max_turns,
+            });
+            document.getElementById('history').prepend(card);
+            if (data.game_over) {
+                document.getElementById('input-area').classList.add('hidden');
+                const panel = document.getElementById('game-over-panel');
+                panel.classList.remove('hidden');
+                document.getElementById('game-over-target').textContent = data.target_label;
+                if (data.win) {
+                    panel.classList.remove('loss');
+                    document.getElementById('game-over-title').textContent = '🎉 Target Found!';
+                } else {
+                    panel.classList.add('loss');
+                    document.getElementById('game-over-title').textContent = '❌ Out of Turns';
+                }
+                document.getElementById('game-over-stats').textContent = displayMode === 'FO'
+                    ? `${data.turn} turns · Total IG: ${totalIG.toFixed(2)} bits · Avg IG/turn: ${(data.turn > 0 ? totalIG / data.turn : 0).toFixed(4)}`
+                    : `${data.turn} turns`;
+            }
+            questionInput.value = '';
+            setLoading(false);
+            questionInput.focus();
+        }
+
+        // ── Auto-retry pruner (no user action needed) ──────────────────────────
+        // Retries up to MAX_ATTEMPTS with exponential backoff. Keeps the spinner
+        // running the whole time so the user just sees "Pruner is analyzing…".
+        // Guard: if a call is already in-flight (e.g. page-load resume races with
+        // a stale retry trigger), the second caller silently waits for the first
+        // to finish rather than firing a duplicate request.
+        let _pruneInFlight = false;
+        let _pruneInflightPromise = null;
+        async function callPruneWithRetry() {
+            if (_pruneInFlight) {
+                // Another call is already running — wait for it instead of spawning a duplicate.
+                return _pruneInflightPromise;
+            }
+            _pruneInFlight = true;
+            _pruneInflightPromise = _doPruneWithRetry().finally(() => {
+                _pruneInFlight = false;
+                _pruneInflightPromise = null;
+            });
+            return _pruneInflightPromise;
+        }
+        async function _doPruneWithRetry() {
+            const MAX_ATTEMPTS = 5;
+            const FETCH_TIMEOUT_MS = 660_000;
+            for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                if (attempt > 1) {
+                    const delay = Math.min(2000 * Math.pow(2, attempt - 2), 16000);
+                    setStatus(`Pruner is analyzing candidates… (retry ${attempt}/${MAX_ATTEMPTS})`);
+                    await new Promise(r => setTimeout(r, delay));
+                }
+                const controller = new AbortController();
+                const tid = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+                let pruneRes;
+                try {
+                    pruneRes = await fetch(askPruneUrl, { method: 'POST', signal: controller.signal });
+                    clearTimeout(tid);
+                } catch (err) {
+                    clearTimeout(tid);
+                    if (attempt === MAX_ATTEMPTS) {
+                        setStatus('⚠ Pruner failed after several attempts. Please reload the page to resume.');
+                        setLoading(false, /*keepStatus=*/true);
+                    }
+                    continue;
+                }
+                if (pruneRes.status === 404) { showExpiredBanner(); return; }
+                const data = await pruneRes.json();
+                if (!pruneRes.ok || data.error) {
+                    if (attempt === MAX_ATTEMPTS) {
+                        setStatus(`⚠ Pruner error after ${MAX_ATTEMPTS} attempts: ${data.error ?? pruneRes.statusText}. Please reload the page.`);
+                        setLoading(false, /*keepStatus=*/true);
+                    }
+                    continue;
+                }
+                applyPruneResult(data);
+                return;
+            }
         }
 
         async function submitQuestion() {
@@ -251,15 +401,37 @@
             setLoading(true);
             setStatus('Oracle is answering…');
 
+            // 660s client-side timeout — matches WEB_LLM_TIMEOUT=600 + generous headroom.
+            // With reasoning enabled the pruner on 160 candidates can take 90-120s of think
+            // time on top of the LLM call itself, so we must not abort before the server does.
+            const FETCH_TIMEOUT_MS = 660_000;
+
+            function fetchWithTimeout(url, opts) {
+                const controller = new AbortController();
+                const tid = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+                return fetch(url, { ...opts, signal: controller.signal })
+                    .finally(() => clearTimeout(tid));
+            }
+
             try {
                 // ── Phase 1: Oracle ───────────────────────────────────────
                 const oracleForm = new FormData();
                 oracleForm.append('question', q);
 
-                const oracleRes = await fetch(askOracleUrl, {
-                    method: 'POST',
-                    body: oracleForm,
-                });
+                let oracleRes;
+                try {
+                    oracleRes = await fetchWithTimeout(askOracleUrl, {
+                        method: 'POST',
+                        body: oracleForm,
+                    });
+                } catch (err) {
+                    const msg = err.name === 'AbortError'
+                        ? '⚠ Oracle timed out. Please try again.'
+                        : `⚠ Network error (oracle): ${err}`;
+                    setStatus(msg);
+                    setLoading(false, /*keepStatus=*/true);
+                    return;
+                }
 
                 if (oracleRes.status === 404) {
                     showExpiredBanner();
@@ -270,90 +442,19 @@
 
                 if (!oracleRes.ok || oracleData.error) {
                     setStatus(`⚠ Oracle error: ${oracleData.error ?? oracleRes.statusText}`);
+                    setLoading(false, /*keepStatus=*/true);
                     return;
                 }
 
                 // Show intermediate state — user knows oracle is done, pruner running
                 setStatus(`Oracle answered: ${oracleData.oracle_answer ?? '(no answer)'}. Pruner is analyzing candidates…`);
 
-                // ── Phase 2: Pruner ───────────────────────────────────────
-                const pruneRes = await fetch(askPruneUrl, { method: 'POST' });
-
-                if (pruneRes.status === 404) {
-                    showExpiredBanner();
-                    return;
-                }
-
-                const data = await pruneRes.json();
-
-                if (!pruneRes.ok || data.error) {
-                    setStatus(`⚠ Pruner error: ${data.error ?? pruneRes.statusText}`);
-                    return;
-                }
-
-                // ── Update UI ─────────────────────────────────────────────
-                turnCount = data.turn;
-                totalIG += data.info_gain ?? 0;
-
-                document.getElementById('turn-count').textContent = data.turn;
-                if (displayMode === 'FO') {
-                    document.getElementById('active-count').textContent = data.active_after;
-                    document.getElementById('entropy-value').textContent = (data.h_after ?? 0).toFixed(2);
-                    document.getElementById('total-ig').textContent = totalIG.toFixed(2);
-                }
-
-                // HINT mode: no candidate panel to hide (hint is in game instructions)
-                // PRIOR mode: static candidate pool panel stays visible throughout
-
-                if (displayMode === 'FO') {
-                    document.getElementById('candidates-list').textContent = data.candidates_text;
-                    document.getElementById('cand-count').textContent = data.active_after;
-                }
-
-                const ig = data.info_gain ?? 0;
-                const igClass = ig > 0 ? '' : (ig === 0 ? 'zero' : 'negative');
-                const card = document.createElement('div');
-                card.className = 'turn-card';
-                const igLine = displayMode === 'FO'
-                    ? `<div class="turn-ig ${igClass}">IG: ${ig.toFixed(4)} bits · H: ${(data.h_before ?? 0).toFixed(2)} → ${(data.h_after ?? 0).toFixed(2)}</div>`
-                    : '';
-                const candidatesDelta = displayMode === 'FO'
-                    ? `<span>${data.active_before} → ${data.active_after} candidates</span>`
-                    : '';
-                card.innerHTML = `
-                    <div class="turn-header">
-                        <span>Turn ${data.turn}/${data.max_turns}</span>
-                        ${candidatesDelta}
-                    </div>
-                    <div class="turn-q">Q: ${escapeHtml(data.question ?? '')}</div>
-                    <div class="turn-a">A: ${escapeHtml(data.oracle_answer ?? '\u2014')}</div>
-                    ${igLine}
-                `;
-                history.prepend(card);
-
-                // ── Game over ─────────────────────────────────────────────
-                if (data.game_over) {
-                    document.getElementById('input-area').classList.add('hidden');
-                    const panel = document.getElementById('game-over-panel');
-                    panel.classList.remove('hidden');
-                    document.getElementById('game-over-target').textContent = data.target_label;
-
-                    if (data.win) {
-                        panel.classList.remove('loss');
-                        document.getElementById('game-over-title').textContent = '🎉 Target Found!';
-                    } else {
-                        panel.classList.add('loss');
-                        document.getElementById('game-over-title').textContent = '❌ Out of Turns';
-                    }
-                    document.getElementById('game-over-stats').textContent = displayMode === 'FO'
-                        ? `${data.turn} turns · Total IG: ${totalIG.toFixed(2)} bits · Avg IG/turn: ${(data.turn > 0 ? totalIG / data.turn : 0).toFixed(4)}`
-                        : `${data.turn} turns`;
-                }
-
-                questionInput.value = '';
+                // ── Phase 2: Pruner (auto-retry on failure) ───────────────────
+                await callPruneWithRetry();
 
             } catch (err) {
                 setStatus(`⚠ Network error: ${err}`);
+                setLoading(false, /*keepStatus=*/true);
             } finally {
                 setLoading(false);
                 questionInput.focus();

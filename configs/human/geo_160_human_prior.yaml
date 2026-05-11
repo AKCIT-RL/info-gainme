@@ -8,10 +8,12 @@ models:
 
   oracle:
     model: "Qwen3-8B"
+    use_reasoning: true
     timeout: 300.0
 
   pruner:
     model: "Qwen3-8B"
+    use_reasoning: true
     timeout: 300.0
 
 game:

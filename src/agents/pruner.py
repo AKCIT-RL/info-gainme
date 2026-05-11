@@ -40,6 +40,7 @@ _PRUNER_RESPONSE_FORMAT = {
     },
 }
 
+_ZERO_PRUNE_RETRIES = 2
 _VALIDATION_RETRIES = 3
 
 
@@ -106,82 +107,112 @@ class PrunerAgent:
         if self.llm_adapter._save_history:
             self.llm_adapter.append_history("user", user_prompt)
 
-        reply = self.llm_adapter.generate(messages=messages, stateless=True,
-                                             response_format=_PRUNER_RESPONSE_FORMAT)
-        reply = llm_final_content(reply)
-
-        # Parse with retries — model may occasionally produce invalid JSON despite response_format
-        last_error: Exception | None = None
-        pruning_response: PrunerResponse | None = None
-        for attempt in range(_VALIDATION_RETRIES):
-            try:
-                pruning_response = PrunerResponse.model_validate_json(reply)
-                break
-            except Exception as e:
-                last_error = e
-                logger.warning(
-                    "Pruner JSON parse error (turn %d, attempt %d/%d): %s | raw=%r",
-                    turn_index, attempt + 1, _VALIDATION_RETRIES, e, reply[:300],
-                )
-                if attempt < _VALIDATION_RETRIES - 1:
-                    # Retry: re-generate without appending to history
-                    retry_messages = messages + [
-                        {"role": "assistant", "content": reply},
-                        {"role": "user", "content": 'Your response was not valid JSON. Reply with ONLY a JSON object: {"rationale": "...", "keep_labels": ["Label1", "Label2", ...]}'}
-                    ]
-                    reply = self.llm_adapter.generate(messages=retry_messages, stateless=True,
-                                                       response_format=_PRUNER_RESPONSE_FORMAT)
-                    reply = llm_final_content(reply)
-
-        if pruning_response is None:
-            logger.warning(
-                "Pruner parse failed after %d attempts (turn %d) — skipping pruning: %s",
-                _VALIDATION_RETRIES, turn_index, last_error,
-            )
-            return PruningResult(pruned_labels=set(), rationale=f"parse error after retries: {last_error}")
-
-        keep_labels_raw = pruning_response.keep_labels
-        rationale = pruning_response.rationale or ""
-
         active_labels = {c.label for c in candidate_pool.get_active()}
-
-        # Case-insensitive matching: the LLM may return labels in different casing
         active_labels_lower = {lbl.lower(): lbl for lbl in active_labels}
-        keep_labels: set[str] = set()
-        unknown_labels: set[str] = set()
-        for lbl in keep_labels_raw:
-            if lbl in active_labels:
-                keep_labels.add(lbl)
-            elif lbl.lower() in active_labels_lower:
-                keep_labels.add(active_labels_lower[lbl.lower()])
-            else:
-                unknown_labels.add(lbl)
-        logger.info(
-            "Pruner matching (turn %d): raw_count=%d, matched=%d, unknown=%d",
-            turn_index, len(keep_labels_raw), len(keep_labels), len(unknown_labels),
-        )
-        if unknown_labels:
-            logger.info("Pruner unknown labels (first 5): %s", list(unknown_labels)[:5])
-            logger.info("Sample active labels (first 5): %s", list(active_labels)[:5])
 
-        if len(keep_labels) == len(active_labels):
+        # Outer loop: retry the full LLM call when the pruner eliminates nothing.
+        # This catches cases where the model hedges or misreads the Q&A pair.
+        for zero_prune_attempt in range(1 + _ZERO_PRUNE_RETRIES):
+            if zero_prune_attempt > 0:
+                logger.warning(
+                    "Pruner returned 0 pruned labels (turn %d, zero-prune retry %d/%d) — retrying.",
+                    turn_index, zero_prune_attempt, _ZERO_PRUNE_RETRIES,
+                )
+
+            reply = self.llm_adapter.generate(
+                messages=messages, stateless=True,
+                response_format=_PRUNER_RESPONSE_FORMAT,
+            )
+            reply = llm_final_content(reply)
+
+            # Inner loop: re-ask if the response is not valid JSON.
+            last_error: Exception | None = None
+            pruning_response: PrunerResponse | None = None
+            for attempt in range(_VALIDATION_RETRIES):
+                try:
+                    pruning_response = PrunerResponse.model_validate_json(reply)
+                    break
+                except Exception as e:
+                    last_error = e
+                    logger.warning(
+                        "Pruner JSON parse error (turn %d, attempt %d/%d): %s | raw=%r",
+                        turn_index, attempt + 1, _VALIDATION_RETRIES, e, reply[:300],
+                    )
+                    if attempt < _VALIDATION_RETRIES - 1:
+                        retry_messages = messages + [
+                            {"role": "assistant", "content": reply},
+                            {"role": "user", "content": 'Your response was not valid JSON. Reply with ONLY a JSON object: {"rationale": "...", "keep_labels": ["Label1", "Label2", ...]}'},
+                        ]
+                        reply = self.llm_adapter.generate(
+                            messages=retry_messages, stateless=True,
+                            response_format=_PRUNER_RESPONSE_FORMAT,
+                        )
+                        reply = llm_final_content(reply)
+
+            if pruning_response is None:
+                logger.warning(
+                    "Pruner parse failed after %d attempts (turn %d) — skipping pruning: %s",
+                    _VALIDATION_RETRIES, turn_index, last_error,
+                )
+                return PruningResult(pruned_labels=set(), rationale=f"parse error after retries: {last_error}")
+
+            keep_labels_raw = pruning_response.keep_labels
+            rationale = pruning_response.rationale or ""
+
+            # Case-insensitive matching
+            keep_labels: set[str] = set()
+            unknown_labels: set[str] = set()
+            for lbl in keep_labels_raw:
+                if lbl in active_labels:
+                    keep_labels.add(lbl)
+                elif lbl.lower() in active_labels_lower:
+                    keep_labels.add(active_labels_lower[lbl.lower()])
+                else:
+                    unknown_labels.add(lbl)
+
+            logger.info(
+                "Pruner matching (turn %d): raw_count=%d, matched=%d, unknown=%d",
+                turn_index, len(keep_labels_raw), len(keep_labels), len(unknown_labels),
+            )
+            if unknown_labels:
+                logger.info("Pruner unknown labels (first 5): %s", list(unknown_labels)[:5])
+                logger.info("Sample active labels (first 5): %s", list(active_labels)[:5])
+
+            if not keep_labels:
+                logger.warning(
+                    "Pruner returned empty keep_labels after matching (turn %d) — skipping pruning.",
+                    turn_index,
+                )
+                return PruningResult(pruned_labels=set(), rationale=f"empty keep_labels: {rationale}")
+
+            pruned_labels = active_labels - keep_labels
+
+            # CRITICAL: never prune the target
+            if target_label:
+                pruned_labels.discard(target_label)
+
+            if pruned_labels:
+                # Got meaningful pruning — done.
+                if len(keep_labels) == len(active_labels):
+                    # Shouldn't happen (pruned_labels would be empty), but be safe.
+                    pass
+                logger.info(
+                    "Pruner pruned %d candidates (turn %d). Rationale: %s",
+                    len(pruned_labels), turn_index, rationale[:200],
+                )
+                self.pruning_count += len(pruned_labels)
+                return PruningResult(pruned_labels=pruned_labels, rationale=rationale)
+
+            # Zero pruned — will retry outer loop if attempts remain.
             logger.info(
                 "Pruner kept ALL %d candidates (turn %d) — 0 IG. Rationale: %s",
                 len(active_labels), turn_index, rationale[:200],
             )
 
-        if not keep_labels:
-            logger.warning(
-                "Pruner returned empty keep_labels after matching (turn %d) — skipping pruning.",
-                turn_index,
-            )
-            return PruningResult(pruned_labels=set(), rationale=f"empty keep_labels: {rationale}")
-
-        pruned_labels = active_labels - keep_labels
-
-        # CRITICAL: never prune the target
-        if target_label:
-            pruned_labels.discard(target_label)
-
-        self.pruning_count += len(pruned_labels)
-        return PruningResult(pruned_labels=pruned_labels, rationale=rationale)
+        # All zero-prune retries exhausted — accept the no-op result.
+        logger.warning(
+            "Pruner returned 0 pruned labels after all retries (turn %d) — accepting no-op.",
+            turn_index,
+        )
+        self.pruning_count += 0
+        return PruningResult(pruned_labels=set(), rationale=rationale)

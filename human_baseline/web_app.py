@@ -26,6 +26,7 @@ import os
 import random
 import sys
 import threading
+import urllib.request
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -67,12 +68,21 @@ app = Flask(__name__)
 # Honor X-Forwarded-Prefix from Caddy so url_for() generates correct paths
 # under /infogainme/ when accessed through the Tailscale Funnel.
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_prefix=1)
-app.secret_key = os.urandom(24)
+# Use a stable secret key so Flask session cookies survive server restarts.
+# Falls back to a random key if the env var is not set (dev/test).
+_secret_key_path = PROJECT_ROOT / "human_baseline" / ".secret_key"
+if not _secret_key_path.exists():
+    import secrets
+    _secret_key_path.write_bytes(secrets.token_bytes(32))
+app.secret_key = _secret_key_path.read_bytes()
 
 # ── Configuration ─────────────────────────────────────────────────────────
 # Ollama endpoint — can be any node running Ollama, but MUST serve qwen3:8b.
 OLLAMA_BASE_URL = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11435/v1")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen3:8b")
+# Timeout for LLM calls from the web app — longer than the default 60s because
+# qwen3:8b reasoning through 160 candidates can take 90-120s on first call.
+WEB_LLM_TIMEOUT = float(os.environ.get("WEB_LLM_TIMEOUT", "600"))
 
 # The oracle/pruner model MUST match the benchmark standard.
 # Any other model invalidates the human baseline comparison.
@@ -139,32 +149,68 @@ def count_games_per_config() -> dict[str, int]:
     return counts
 
 
-def pick_least_played_config() -> str:
-    """Return the AUTO_ASSIGN config with fewest completed games.
+def _domain_of(config_key: str) -> str:
+    """Extract the domain prefix from a config key (e.g. 'geo', 'objects', 'diseases')."""
+    for domain in ("geo", "objects", "diseases"):
+        if config_key.startswith(domain):
+            return domain
+    return config_key  # fallback: treat the whole key as its own domain
 
-    Ties broken alphabetically for determinism.
+
+def pick_least_played_config(
+    rng: random.Random | None = None,
+    exclude_domains: list[str] | None = None,
+) -> str:
+    """Return a randomly-chosen AUTO_ASSIGN config from those with the fewest completed games.
+
+    Ties are broken by random sampling so consecutive participants (and the same
+    participant across multiple games) see varied domains.
+
+    Args:
+        rng: Optional RNG for deterministic testing.
+        exclude_domains: Domain prefixes to avoid if at all possible (e.g. the
+            domain(s) the participant just played).  If excluding those domains
+            would leave no candidates, the constraint is silently dropped so we
+            always return *something*.
     """
     counts = count_games_per_config()
-    return min(AUTO_ASSIGN_CONFIGS, key=lambda k: (counts.get(k, 0), k))
+    min_count = min(counts.get(k, 0) for k in AUTO_ASSIGN_CONFIGS)
+    least_played = [k for k in AUTO_ASSIGN_CONFIGS if counts.get(k, 0) == min_count]
+
+    # Try to avoid recently-played domains for this participant
+    if exclude_domains:
+        diverse = [k for k in least_played if _domain_of(k) not in exclude_domains]
+        if diverse:
+            least_played = diverse
+        # else: all least-played configs share the excluded domain — ignore constraint
+
+    _rng = rng or random
+    return _rng.choice(least_played)
 
 
 def assign_config_for_participant(email: str) -> str:
     """Assign a config key to a participant, balancing across all auto-assign configs.
 
-    - If this email was seen before: return the same config they got last time.
-    - Otherwise: pick the config with fewest completed games (representativity).
+    Always picks the least-played config (representativity), avoiding the domain
+    the participant played most recently to promote variety.
     """
     with PARTICIPANTS_LOCK:
         data = _load_participants()
         participants = data.get("participants", {})
 
         email_lower = email.strip().lower()
-        if email_lower in participants:
-            # Returning participant on first login — give them the same config
-            return participants[email_lower]["config"]
 
-        # New participant — pick least-played config from actual outputs
-        assigned = pick_least_played_config()
+        # Avoid re-assigning the most recently played domain
+        exclude_domains: list[str] = []
+        if email_lower in participants:
+            history = participants[email_lower].get("game_history", [])
+            if history:
+                exclude_domains = [_domain_of(history[-1]["config"])]
+            elif participants[email_lower].get("config"):
+                exclude_domains = [_domain_of(participants[email_lower]["config"])]
+
+        # Pick least-played config from actual outputs
+        assigned = pick_least_played_config(exclude_domains=exclude_domains)
 
         # Record participant
         participants[email_lower] = {
@@ -180,8 +226,13 @@ def assign_config_for_participant(email: str) -> str:
         return assigned
 
 
-def record_game_for_participant(email: str) -> None:
-    """Increment the games counter for a returning participant."""
+def record_game_for_participant(email: str, game_id: str = "", config_key: str = "") -> None:
+    """Increment the games counter and append a run record for a participant.
+
+    Appends a ``{game_id, config, started_at}`` entry to the participant's
+    ``game_history`` list so individual runs can be matched back to the
+    participant later during analysis.
+    """
     if not email:
         return
     with PARTICIPANTS_LOCK:
@@ -190,6 +241,13 @@ def record_game_for_participant(email: str) -> None:
         email_lower = email.strip().lower()
         if email_lower in participants:
             participants[email_lower]["games"] = participants[email_lower].get("games", 0) + 1
+            if game_id:
+                history = participants[email_lower].setdefault("game_history", [])
+                history.append({
+                    "game_id": game_id,
+                    "config": config_key,
+                    "started_at": datetime.now().isoformat(),
+                })
             data["participants"] = participants
             _save_participants(data)
 
@@ -197,6 +255,174 @@ def record_game_for_participant(email: str) -> None:
 # ── In-memory game storage ────────────────────────────────────────────────
 GAMES: dict[str, "GameSession"] = {}
 GAMES_LOCK = threading.Lock()
+
+# ── Game persistence ───────────────────────────────────────────────────────
+# Games are serialized to disk after every turn so they survive server restarts.
+# The snapshot captures everything needed to reconstruct oracle/pruner context.
+GAME_SNAPSHOTS_DIR = PROJECT_ROOT / "human_baseline" / "game_snapshots"
+GAME_SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def _game_snapshot_path(game_id: str) -> Path:
+    return GAME_SNAPSHOTS_DIR / f"{game_id}.json"
+
+
+def _save_game_snapshot(game: "GameSession") -> None:
+    """Persist game state to disk so it survives server restarts."""
+    try:
+        snapshot = {
+            "id": game.id,
+            "config_key": game.config_key,
+            "participant_email": game.participant_email,
+            "target_id": game.target.id,
+            "target_label": game.target.label,
+            "target_attrs": dict(game.target.attrs),
+            "max_turns": game.max_turns,
+            "current_turn": game.current_turn,
+            "game_over": game.game_over,
+            "win": game.win,
+            "obs_mode": game.obs_mode.value,
+            "dataset_type": game.dataset_type,
+            "created_at": game.created_at.isoformat(),
+            # LLM history — needed for oracle/pruner context on next turn
+            "oracle_history": game.oracle._llm_adapter.reasoning_history,
+            "pruner_history": (
+                game.pruner.llm_adapter.reasoning_history
+                if game.pruner.llm_adapter._save_history else []
+            ),
+            # Active candidate IDs — to restore pruned pool state
+            "active_candidate_ids": [c.id for c in game.pool.get_active()],
+            # Turns — for export and UI replay
+            "turns": [t.to_export_dict() for t in game.turns],
+            # Pending two-phase state
+            "pending_question": game.pending_question.text if game.pending_question else None,
+            "pending_oracle_answer_text": game.pending_oracle_answer.text if game.pending_oracle_answer else None,
+            "pending_oracle_answer_rationale": game.pending_oracle_answer.rationale if game.pending_oracle_answer else None,
+            "pending_oracle_answer_compliant": game.pending_oracle_answer.compliant if game.pending_oracle_answer else None,
+            "pending_oracle_answer_game_over": game.pending_oracle_answer.game_over if game.pending_oracle_answer else None,
+            "pending_turn_num": game.pending_turn_num,
+            "pending_h_before": game.pending_h_before,
+            "pending_active_before": game.pending_active_before,
+            "pending_turn_start": game.pending_turn_start.isoformat() if game.pending_turn_start else None,
+        }
+        tmp = _game_snapshot_path(game.id).with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(snapshot, ensure_ascii=False))
+        tmp.replace(_game_snapshot_path(game.id))
+    except Exception as e:
+        logger.warning("Failed to save game snapshot for %s: %s", game.id, e)
+
+
+def _restore_game_from_snapshot(game_id: str) -> "GameSession | None":
+    """Reconstruct a GameSession from its disk snapshot. Returns None if missing or corrupt."""
+    path = _game_snapshot_path(game_id)
+    if not path.exists():
+        return None
+    try:
+        snap = json.loads(path.read_text())
+        config_key = snap["config_key"]
+        if config_key not in AVAILABLE_CONFIGS:
+            return None
+
+        # Rebuild game via create_game (loads config, builds agents cleanly)
+        game = create_game(
+            config_key,
+            participant_email=snap.get("participant_email", ""),
+        )
+        # Override game id and created_at to match original
+        game.id = snap["id"]
+        game.created_at = datetime.fromisoformat(snap["created_at"])
+        game.current_turn = snap["current_turn"]
+        game.game_over = snap["game_over"]
+        game.win = snap["win"]
+
+        # Restore pool — prune everything not in active_candidate_ids
+        active_ids = set(snap.get("active_candidate_ids", []))
+        labels_to_prune = {
+            c.label for c in game.pool.candidates if c.id not in active_ids
+        }
+        if labels_to_prune:
+            game.pool.prune(labels_to_prune)
+
+        # Restore oracle/pruner LLM history so they have context for next turn
+        oracle_history = snap.get("oracle_history", [])
+        if oracle_history:
+            game.oracle._llm_adapter._history = [
+                m for m in oracle_history if "<think>" not in m.get("content", "")
+            ]
+            game.oracle._llm_adapter._reasoning_history = oracle_history
+
+        pruner_history = snap.get("pruner_history", [])
+        if pruner_history and game.pruner.llm_adapter._save_history:
+            game.pruner.llm_adapter._history = [
+                m for m in pruner_history if "<think>" not in m.get("content", "")
+            ]
+            game.pruner.llm_adapter._reasoning_history = pruner_history
+
+        # Restore completed turns (for UI history display)
+        from src.data_types import PruningResult
+        for td in snap.get("turns", []):
+            ts = TurnState(
+                turn_index=td["turn_index"],
+                h_before=td["h_before"],
+                h_after=td["h_after"],
+                info_gain=td["info_gain"],
+                pruned_count=td["pruned_count"],
+                question=Question(text=td["question"]["text"]),
+                answer=Answer(
+                    rationale=td["answer"].get("rationale", ""),
+                    text=td["answer"]["text"],
+                    compliant=td["answer"]["compliant"],
+                    game_over=td["answer"]["game_over"],
+                ),
+                active_candidates_before=td.get("active_candidates_before"),
+                active_candidates_after=td.get("active_candidates_after"),
+                timestamp_start=td.get("timestamp_start"),
+                timestamp_end=td.get("timestamp_end"),
+                duration_seconds=td.get("duration_seconds"),
+            )
+            if td.get("pruning_result"):
+                pr = td["pruning_result"]
+                ts.pruning_result = PruningResult(
+                    pruned_labels=set(pr.get("pruned_labels", [])),
+                    rationale=pr.get("rationale", pr.get("reasoning", "")),
+                )
+            game.turns.append(ts)
+
+        # Restore pending two-phase state if present
+        if snap.get("pending_question"):
+            game.pending_question = Question(text=snap["pending_question"])
+            game.pending_oracle_answer = Answer(
+                rationale=snap.get("pending_oracle_answer_rationale", ""),
+                text=snap["pending_oracle_answer_text"],
+                compliant=snap["pending_oracle_answer_compliant"],
+                game_over=snap["pending_oracle_answer_game_over"],
+            )
+            game.pending_turn_num = snap["pending_turn_num"]
+            game.pending_h_before = snap["pending_h_before"]
+            game.pending_active_before = snap["pending_active_before"]
+            game.pending_turn_start = (
+                datetime.fromisoformat(snap["pending_turn_start"])
+                if snap.get("pending_turn_start") else datetime.now()
+            )
+
+        logger.info("Restored game %s from snapshot (turn %d)", game_id, game.current_turn)
+        return game
+    except Exception as e:
+        logger.warning("Failed to restore game %s from snapshot: %s", game_id, e)
+        return None
+
+
+def get_game(game_id: str) -> "GameSession | None":
+    """Fetch a game from memory, falling back to disk snapshot on miss."""
+    game = GAMES.get(game_id)
+    if game is not None:
+        return game
+    # Try to restore from disk (handles server restarts)
+    game = _restore_game_from_snapshot(game_id)
+    if game is not None:
+        with GAMES_LOCK:
+            GAMES[game.id] = game
+    return game
 
 
 def _safe_name(text: str) -> str:
@@ -248,6 +474,11 @@ class GameSession:
         self.pending_turn_num: int | None = None
         self.pending_h_before: float | None = None
         self.pending_active_before: int | None = None
+
+        # Lock to prevent concurrent /ask_prune calls from running the pruner twice.
+        # The second concurrent caller will block until the first finishes, then
+        # hit the _replayed path (pending_oracle_answer is None by then).
+        self._prune_lock = threading.Lock()
         self.pending_turn_start: datetime | None = None
 
 
@@ -282,6 +513,7 @@ def create_game(config_key: str, seed: int | None = None, participant_email: str
         cfg.base_url = OLLAMA_BASE_URL
         cfg.model = OLLAMA_MODEL
         cfg.api_key = API_KEY
+        cfg.timeout = WEB_LLM_TIMEOUT
 
     # Load dataset
     pool, dataset_type = _load_dataset(config)
@@ -519,6 +751,109 @@ def _game_summary(game: GameSession) -> dict:
     }
 
 
+def _count_total_games() -> int:
+    """Count total completed games across all outputs."""
+    outputs = PROJECT_ROOT / "outputs"
+    if not outputs.exists():
+        return 0
+    return sum(1 for p in outputs.rglob("metadata.json"))
+
+
+def _count_unique_subjects() -> int:
+    """Count unique participants who have completed at least one game."""
+    if not PARTICIPANTS_FILE.exists():
+        return 0
+    try:
+        data = json.loads(PARTICIPANTS_FILE.read_text())
+        return len(data.get("participants", {}))
+    except Exception:
+        return 0
+
+
+def _notify_game_complete(game: GameSession) -> None:
+    """Send a game-complete notification to Discord webhook and Telegram."""
+    summary = _game_summary(game)
+    games_per_config = count_games_per_config()
+    total_games = sum(games_per_config.values())
+    unique_subjects = _count_unique_subjects()
+    result = "WIN ✅" if game.win else "LOSS ❌"
+    ig = summary["total_info_gain"]
+    avg_ig = summary["avg_info_gain_per_turn"]
+    turns = summary["turns"]
+    h_start = summary["h_start"] or 0.0
+    h_end = summary["h_end"] or 0.0
+    email = game.participant_email or "(anonymous)"
+    config = game.benchmark_config.experiment_name or "unknown"
+    target = game.target.label if game.target else "?"
+    max_turns = game.max_turns
+
+    # ── Discord webhook (existing) ──────────────────────────────────────────
+    webhook_url = os.environ.get("INFOGAINME_WEBHOOK_URL", "")
+    if webhook_url:
+        try:
+            payload = {
+                "content": (
+                    f"🎮 **Game complete** — {result}\n"
+                    f"👤 {email}\n"
+                    f"🎯 Target: `{target}` | Config: `{config}`\n"
+                    f"📊 Turns: {turns}/{max_turns} | IG: {ig:.3f} | Avg IG/turn: {avg_ig:.4f}\n"
+                    f"📦 Total games: **{total_games}** across **{unique_subjects}** subjects"
+                )
+            }
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                webhook_url,
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                if resp.status not in (200, 204):
+                    logger.warning("Discord webhook returned status %s", resp.status)
+        except Exception as e:
+            logger.warning("Discord webhook notification failed: %s", e)
+
+    # ── Telegram notification ───────────────────────────────────────────────
+    tg_token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    tg_chat_id = os.environ.get("INFOGAINME_TELEGRAM_CHAT_ID", "")
+    tg_thread_id = os.environ.get("INFOGAINME_TELEGRAM_THREAD_ID", "")
+    if tg_token and tg_chat_id:
+        try:
+            # Build per-config stats lines
+            config_lines = "\n".join(
+                f"  `{k}`: {v}" for k, v in sorted(games_per_config.items())
+            )
+            text = (
+                f"🎮 *Game complete* — {result}\n"
+                f"👤 `{email}`\n"
+                f"🎯 Target: `{target}`\n"
+                f"📋 Config: `{config}`\n"
+                f"📊 Turns: {turns}/{max_turns} | H: {h_start:.2f}→{h_end:.2f} | IG: {ig:.3f} | Avg: {avg_ig:.4f}\n"
+                f"\n"
+                f"*Collection status* — {total_games} games, {unique_subjects} subjects\n"
+                f"{config_lines}"
+            )
+            payload = {
+                "chat_id": tg_chat_id,
+                "text": text,
+                "parse_mode": "Markdown",
+            }
+            if tg_thread_id:
+                payload["message_thread_id"] = int(tg_thread_id)
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(
+                f"https://api.telegram.org/bot{tg_token}/sendMessage",
+                data=data,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                if resp.status not in (200, 204):
+                    logger.warning("Telegram notification returned status %s", resp.status)
+        except Exception as e:
+            logger.warning("Telegram notification failed: %s", e)
+
+
 # ── Routes ────────────────────────────────────────────────────────────────
 
 
@@ -539,10 +874,12 @@ def login():
         if forced_config and forced_config in AVAILABLE_CONFIGS:
             config_key = forced_config
             logger.info("Login config override: %s → %s", email, config_key)
-        else:
-            config_key = pick_least_played_config()
-            # Still register in participants file for tracking
+            # Still register the participant so they get the same config next time
             assign_config_for_participant(email)
+        else:
+            # assign_config_for_participant handles returning vs new participants
+            # and calls pick_least_played_config() internally.
+            config_key = assign_config_for_participant(email)
         if config_key not in AVAILABLE_CONFIGS:
             config_key = next(iter(AVAILABLE_CONFIGS))
 
@@ -560,7 +897,7 @@ def login():
         with GAMES_LOCK:
             GAMES[game.id] = game
 
-        record_game_for_participant(email)
+        record_game_for_participant(email, game_id=game.id, config_key=config_key)
         logger.info("Participant %s assigned config=%s, game=%s", email, config_key, game.id)
         resp = redirect(url_for("game_page", game_id=game.id))
         resp.set_cookie("participant_email", email, max_age=365 * 24 * 3600, samesite="Lax")
@@ -649,7 +986,7 @@ def start():
         GAMES[game.id] = game
 
     if email:
-        record_game_for_participant(email)
+        record_game_for_participant(email, game_id=game.id, config_key=config_key)
 
     return redirect(url_for("game_page", game_id=game.id))
 
@@ -662,7 +999,7 @@ def new_game(game_id):
       ?config=<key>  — force a specific config (debug/researcher override)
       ?seed=42       — override seed (default: random)
     """
-    old_game = GAMES.get(game_id)
+    old_game = get_game(game_id)
     email = session.get("participant_email", "") or (old_game.participant_email if old_game else "")
 
     # Config override: researcher/debug can force a specific config via ?config=
@@ -671,9 +1008,25 @@ def new_game(game_id):
         config_key = forced_config
         logger.info("new_game: debug config override → %s", config_key)
     else:
-        # Normal path: always pick the least-played config for representativity
-        config_key = pick_least_played_config()
-        logger.info("new_game: least-played config → %s", config_key)
+        # Avoid giving the participant the same domain back-to-back.
+        # Look at their last played config (from game_history or the current game).
+        exclude_domains: list[str] = []
+        if email:
+            with PARTICIPANTS_LOCK:
+                pdata = _load_participants().get("participants", {}).get(email.strip().lower(), {})
+            history = pdata.get("game_history", [])
+            if history:
+                exclude_domains = [_domain_of(history[-1]["config"])]
+            elif old_game:
+                exclude_domains = [_domain_of(old_game.config_key)]
+        elif old_game:
+            exclude_domains = [_domain_of(old_game.config_key)]
+
+        config_key = pick_least_played_config(exclude_domains=exclude_domains)
+        logger.info(
+            "new_game: least-played config → %s (excluded domains: %s)",
+            config_key, exclude_domains or "none",
+        )
 
     seed = request.args.get("seed")
     seed = int(seed) if seed and seed.strip().lstrip("-").isdigit() else None
@@ -683,7 +1036,7 @@ def new_game(game_id):
         GAMES[game.id] = game
 
     if email:
-        record_game_for_participant(email)
+        record_game_for_participant(email, game_id=game.id, config_key=config_key)
 
     return redirect(url_for("game_page", game_id=game.id))
 
@@ -691,7 +1044,7 @@ def new_game(game_id):
 @app.route("/game/<game_id>")
 def game_page(game_id):
     """Render the game interface."""
-    game = GAMES.get(game_id)
+    game = get_game(game_id)
     if not game:
         # Redirect to index with a gentle error message instead of bare 404
         return redirect(url_for("index", _anchor="session-expired"))
@@ -722,6 +1075,24 @@ def game_page(game_id):
         pool_description=game.domain_config.seeker_pool_description,
     )
 
+    # Serialize turns for history replay on page reload
+    turns_data = [
+        {
+            "turn": t.turn_index,
+            "question": t.question.text,
+            "oracle_answer": t.answer.text,
+            "info_gain": t.info_gain,
+            "h_before": t.h_before,
+            "h_after": t.h_after,
+            "active_before": t.active_candidates_before,
+            "active_after": t.active_candidates_after,
+            "max_turns": game.max_turns,
+        }
+        for t in game.turns
+    ]
+
+    pending_pruner = game.pending_question is not None and game.pending_oracle_answer is not None
+
     return render_template(
         "game.html",
         game=game,
@@ -729,6 +1100,8 @@ def game_page(game_id):
         active_count=len(active),
         seeker_prompt=seeker_prompt,
         display_mode=display_mode,
+        turns_data=turns_data,
+        pending_pruner=pending_pruner,
     )
 
 
@@ -742,7 +1115,7 @@ def ask_oracle(game_id):
     This split gives the player real-time feedback even when the Pruner
     takes a long time with many candidates.
     """
-    game = GAMES.get(game_id)
+    game = get_game(game_id)
     if not game:
         return jsonify({"error": "Game not found (session may have expired — start a new game)"}), 404
     if game.game_over:
@@ -781,6 +1154,9 @@ def ask_oracle(game_id):
         game_id, turn, question_text, answer.text, answer.game_over,
     )
 
+    # Persist pending state so a server restart doesn't lose the oracle answer
+    _save_game_snapshot(game)
+
     return jsonify({
         "turn": turn,
         "max_turns": game.max_turns,
@@ -799,120 +1175,162 @@ def ask_prune(game_id):
     Must be called after /ask_oracle/<game_id>. Returns the full turn result
     including pruner stats, entropy update, and game-over status.
     """
-    game = GAMES.get(game_id)
+    game = get_game(game_id)
     if not game:
         return jsonify({"error": "Game not found (session may have expired — start a new game)"}), 404
-    if game.pending_oracle_answer is None:
-        return jsonify({"error": "No oracle result pending — call /ask_oracle first"}), 400
 
-    # Retrieve and clear pending state atomically
-    question = game.pending_question
-    answer = game.pending_oracle_answer
-    turn = game.pending_turn_num
-    h_before = game.pending_h_before
-    active_count_before = game.pending_active_before
-    turn_start = game.pending_turn_start
+    # Lock prevents two concurrent calls (e.g. client auto-retry races with itself)
+    # from running the pruner twice. The second caller blocks here, then hits the
+    # _replayed path below once pending_oracle_answer is already cleared.
+    with game._prune_lock:
+        if game.pending_oracle_answer is None:
+            # The pruner may have already finished (client fetch timed out before server
+            # responded). If the last recorded turn matches, replay the cached response
+            # so the client can recover without losing a turn.
+            if game.turns:
+                last = game.turns[-1]
+                active_after = game.pool.get_active()
+                candidates_text = ", ".join(c.label for c in sorted(active_after, key=lambda c: c.label))
+                logger.info(
+                    "ask_prune called with no pending state — replaying cached turn %d for game %s",
+                    last.turn_index, game_id,
+                )
+                return jsonify({
+                    "turn": last.turn_index,
+                    "max_turns": game.max_turns,
+                    "question": last.question.text,
+                    "oracle_answer": last.answer.text,
+                    "game_over_flag": last.answer.game_over,
+                    "compliant": last.answer.compliant,
+                    "h_before": round(last.h_before, 4),
+                    "h_after": round(last.h_after, 4),
+                    "info_gain": round(last.info_gain, 4),
+                    "active_before": last.active_candidates_before,
+                    "active_after": last.active_candidates_after,
+                    "pruned_count": last.pruned_count,
+                    "candidates_text": candidates_text,
+                    "game_over": game.game_over,
+                    "win": game.win,
+                    "target_label": game.target.label if game.game_over else None,
+                    "_replayed": True,
+                })
+            return jsonify({"error": "No oracle result pending — call /ask_oracle first"}), 400
 
-    game.pending_question = None
-    game.pending_oracle_answer = None
-    game.pending_turn_num = None
-    game.pending_h_before = None
-    game.pending_active_before = None
-    game.pending_turn_start = None
+        # Snapshot pending state locally — do NOT clear from game until pruner succeeds.
+        # If we clear first and the pruner times out, the retry button can't recover
+        # because pending_oracle_answer is already gone from memory.
+        question = game.pending_question
+        answer = game.pending_oracle_answer
+        turn = game.pending_turn_num
+        h_before = game.pending_h_before
+        active_count_before = game.pending_active_before
+        turn_start = game.pending_turn_start
 
-    # Now commit the turn counter
-    game.current_turn = turn
+        # Now commit the turn counter
+        game.current_turn = turn
 
-    # ── Pruner ────────────────────────────────────────────────────────────
-    try:
-        pruning_result = game.pruner.analyze_and_prune(
-            candidate_pool=game.pool,
+        # ── Pruner ────────────────────────────────────────────────────────────
+        try:
+            pruning_result = game.pruner.analyze_and_prune(
+                candidate_pool=game.pool,
+                turn_index=turn,
+                question=question,
+                answer=answer,
+                target_label=game.target.label,
+            )
+            pruned_count = 0
+            if pruning_result.pruned_labels:
+                pruned_count = game.pool.prune(pruning_result.pruned_labels)
+        except Exception as e:
+            logger.error("Pruner error (game %s, turn %d): %s", game_id, turn, e)
+            from src.data_types import PruningResult
+            pruning_result = PruningResult(pruned_labels=set(), rationale=f"error: {e}")
+            pruned_count = 0
+
+        # ── Entropy ───────────────────────────────────────────────────────────
+        active_count_after = len(game.pool.get_active())
+        if answer.game_over:
+            h_after = 0.0
+        else:
+            h_after = game.entropy.compute(active_count_after)
+
+        info_gain = game.entropy.info_gain(h_before, h_after)
+
+        turn_end = datetime.now()
+        duration = (turn_end - turn_start).total_seconds()
+
+        # ── Record turn ───────────────────────────────────────────────────────
+        active_candidates = game.pool.get_active()  # snapshot before this turn started
+        turn_state = TurnState(
             turn_index=turn,
+            h_before=h_before,
+            h_after=h_after,
+            info_gain=info_gain,
+            pruned_count=pruned_count,
             question=question,
             answer=answer,
-            target_label=game.target.label,
+            pruning_result=pruning_result,
+            active_candidates_before=active_count_before,
+            active_candidates_after=active_count_after,
+            timestamp_start=turn_start.isoformat(),
+            timestamp_end=turn_end.isoformat(),
+            duration_seconds=round(duration, 6),
+            candidates_snapshot=[c.label for c in game.pool.get_active()],
         )
-        pruned_count = 0
-        if pruning_result.pruned_labels:
-            pruned_count = game.pool.prune(pruning_result.pruned_labels)
-    except Exception as e:
-        logger.error("Pruner error (game %s, turn %d): %s", game_id, turn, e)
-        from src.data_types import PruningResult
-        pruning_result = PruningResult(pruned_labels=set(), rationale=f"error: {e}")
-        pruned_count = 0
+        game.turns.append(turn_state)
 
-    # ── Entropy ───────────────────────────────────────────────────────────
-    active_count_after = len(game.pool.get_active())
-    if answer.game_over:
-        h_after = 0.0
-    else:
-        h_after = game.entropy.compute(active_count_after)
+        # ── Clear pending state now that pruner has finished ──────────────────
+        game.pending_question = None
+        game.pending_oracle_answer = None
+        game.pending_turn_num = None
+        game.pending_h_before = None
+        game.pending_active_before = None
+        game.pending_turn_start = None
 
-    info_gain = game.entropy.info_gain(h_before, h_after)
+        # ── Game end conditions ───────────────────────────────────────────────
+        if answer.game_over:
+            game.game_over = True
+            game.win = True
+            logger.info("Game %s WON in %d turns (target: %s)", game_id, turn, game.target.label)
+        elif turn >= game.max_turns:
+            game.game_over = True
+            game.win = False
+            logger.info("Game %s LOST — max turns reached (target: %s)", game_id, game.target.label)
 
-    turn_end = datetime.now()
-    duration = (turn_end - turn_start).total_seconds()
+        # ── Auto-export on game end ───────────────────────────────────────────
+        export_path = None
+        if game.game_over:
+            try:
+                export_path = str(export_game(game))
+                threading.Thread(target=_notify_game_complete, args=(game,), daemon=True).start()
+            except Exception as e:
+                logger.error("Export failed for game %s: %s", game_id, e)
 
-    # ── Record turn ───────────────────────────────────────────────────────
-    active_candidates = game.pool.get_active()  # snapshot before this turn started
-    turn_state = TurnState(
-        turn_index=turn,
-        h_before=h_before,
-        h_after=h_after,
-        info_gain=info_gain,
-        pruned_count=pruned_count,
-        question=question,
-        answer=answer,
-        pruning_result=pruning_result,
-        active_candidates_before=active_count_before,
-        active_candidates_after=active_count_after,
-        timestamp_start=turn_start.isoformat(),
-        timestamp_end=turn_end.isoformat(),
-        duration_seconds=round(duration, 6),
-        candidates_snapshot=[c.label for c in game.pool.get_active()],
-    )
-    game.turns.append(turn_state)
+        # Persist updated state (pending cleared, turn recorded)
+        _save_game_snapshot(game)
 
-    # ── Game end conditions ───────────────────────────────────────────────
-    if answer.game_over:
-        game.game_over = True
-        game.win = True
-        logger.info("Game %s WON in %d turns (target: %s)", game_id, turn, game.target.label)
-    elif turn >= game.max_turns:
-        game.game_over = True
-        game.win = False
-        logger.info("Game %s LOST — max turns reached (target: %s)", game_id, game.target.label)
+        # ── Build response ────────────────────────────────────────────────────
+        active_after = game.pool.get_active()
+        candidates_text = ", ".join(c.label for c in sorted(active_after, key=lambda c: c.label))
 
-    # ── Auto-export on game end ───────────────────────────────────────────
-    export_path = None
-    if game.game_over:
-        try:
-            export_path = str(export_game(game))
-        except Exception as e:
-            logger.error("Export failed for game %s: %s", game_id, e)
-
-    # ── Build response ────────────────────────────────────────────────────
-    active_after = game.pool.get_active()
-    candidates_text = ", ".join(c.label for c in sorted(active_after, key=lambda c: c.label))
-
-    return jsonify({
-        "turn": turn,
-        "max_turns": game.max_turns,
-        "question": question.text,
-        "oracle_answer": answer.text,
-        # oracle_rationale intentionally omitted — it reveals the target
-        "game_over_flag": answer.game_over,
-        "compliant": answer.compliant,
-        "h_before": round(h_before, 4),
-        "h_after": round(h_after, 4),
-        "info_gain": round(info_gain, 4),
-        "active_before": active_count_before,
-        "active_after": active_count_after,
-        "pruned_count": pruned_count,
-        # pruner_rationale intentionally omitted — may reference the target
-        "candidates_text": candidates_text,
-        "game_over": game.game_over,
-        "win": game.win,
+        return jsonify({
+            "turn": turn,
+            "max_turns": game.max_turns,
+            "question": question.text,
+            "oracle_answer": answer.text,
+            # oracle_rationale intentionally omitted — it reveals the target
+            "game_over_flag": answer.game_over,
+            "compliant": answer.compliant,
+            "h_before": round(h_before, 4),
+            "h_after": round(h_after, 4),
+            "info_gain": round(info_gain, 4),
+            "active_before": active_count_before,
+            "active_after": active_count_after,
+            "pruned_count": pruned_count,
+            # pruner_rationale intentionally omitted — may reference the target
+            "candidates_text": candidates_text,
+            "game_over": game.game_over,
+            "win": game.win,
         "target_label": game.target.label if game.game_over else None,
         "export_path": export_path,
     })
@@ -925,7 +1343,7 @@ def ask(game_id):
     Prefer the two-phase /ask_oracle → /ask_prune flow for better UX.
     This endpoint is kept for backward compatibility and API clients.
     """
-    game = GAMES.get(game_id)
+    game = get_game(game_id)
     if not game:
         return jsonify({"error": "Game not found (session may have expired — start a new game)"}), 404
     if game.game_over:
@@ -1023,6 +1441,7 @@ def ask(game_id):
     if game.game_over:
         try:
             export_path = str(export_game(game))
+            threading.Thread(target=_notify_game_complete, args=(game,), daemon=True).start()
         except Exception as e:
             logger.error("Export failed for game %s: %s", game_id, e)
 
@@ -1056,7 +1475,7 @@ def ask(game_id):
 @app.route("/status/<game_id>")
 def status(game_id):
     """Return current game state as JSON."""
-    game = GAMES.get(game_id)
+    game = get_game(game_id)
     if not game:
         return jsonify({"error": "Game not found"}), 404
 

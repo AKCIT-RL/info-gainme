@@ -2,28 +2,531 @@
   "participants": {
     "bryanlmoliveira@gmail.com": {
       "email": "bryanlmoliveira@gmail.com",
-      "config": "diseases_160_human_fo",
-      "assigned_at": "2026-04-29T17:15:08.017822",
-      "games": 3
+      "config": "geo_160_human_prior",
+      "assigned_at": "2026-05-06T13:48:12.871637",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "b9d702d1",
+          "config": "geo_160_human_prior",
+          "started_at": "2026-05-06T13:48:12.896267"
+        }
+      ]
     },
     "test@example.com": {
       "email": "test@example.com",
       "config": "diseases_160_human_hint",
       "assigned_at": "2026-04-29T19:23:21.842949",
-      "games": 2
+      "games": 4
     },
     "bryan@test.com": {
       "email": "bryan@test.com",
       "config": "diseases_160_human_po",
       "assigned_at": "2026-04-29T19:27:36.535229",
       "games": 2
+    },
+    "testuser@example.com": {
+      "email": "testuser@example.com",
+      "config": "diseases_160_human_prior",
+      "assigned_at": "2026-04-29T20:00:30.062397",
+      "games": 1
+    },
+    "dmachadopedrozo@gmail.com": {
+      "email": "dmachadopedrozo@gmail.com",
+      "config": "diseases_160_human_po",
+      "assigned_at": "2026-04-30T13:27:36.722052",
+      "games": 4
+    },
+    "edusantosgarcia@gmail.com": {
+      "email": "edusantosgarcia@gmail.com",
+      "config": "diseases_160_human_po",
+      "assigned_at": "2026-05-01T12:16:16.105022",
+      "games": 21,
+      "game_history": [
+        {
+          "game_id": "da756ffa",
+          "config": "diseases_160_human_po",
+          "started_at": "2026-05-01T22:28:26.084667"
+        },
+        {
+          "game_id": "0ac5d401",
+          "config": "diseases_160_human_po",
+          "started_at": "2026-05-03T07:10:44.315451"
+        },
+        {
+          "game_id": "2bb010c2",
+          "config": "diseases_160_human_po",
+          "started_at": "2026-05-03T08:05:25.229047"
+        },
+        {
+          "game_id": "3b1ee8c1",
+          "config": "geo_160_human_prior",
+          "started_at": "2026-05-03T08:05:31.789431"
+        },
+        {
+          "game_id": "1f84b218",
+          "config": "diseases_160_human_po",
+          "started_at": "2026-05-03T09:04:56.163227"
+        },
+        {
+          "game_id": "85c8c1e9",
+          "config": "diseases_160_human_po",
+          "started_at": "2026-05-03T09:27:34.831698"
+        },
+        {
+          "game_id": "c4482195",
+          "config": "diseases_160_human_po",
+          "started_at": "2026-05-03T10:17:55.551084"
+        },
+        {
+          "game_id": "72c17d9a",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-03T12:15:42.075619"
+        },
+        {
+          "game_id": "a8b57624",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-03T12:15:45.977847"
+        },
+        {
+          "game_id": "d7dd7e31",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-03T12:15:47.604384"
+        },
+        {
+          "game_id": "f45721c4",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-03T12:15:49.466398"
+        },
+        {
+          "game_id": "312e0770",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-03T12:15:51.238876"
+        },
+        {
+          "game_id": "e8864059",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-03T12:15:52.613601"
+        },
+        {
+          "game_id": "e2e770a2",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-03T12:15:53.976153"
+        },
+        {
+          "game_id": "ea0e4153",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-03T12:15:55.501885"
+        },
+        {
+          "game_id": "e1b560b9",
+          "config": "diseases_160_human_po",
+          "started_at": "2026-05-03T12:26:56.157581"
+        },
+        {
+          "game_id": "fea4bc2b",
+          "config": "diseases_160_human_po",
+          "started_at": "2026-05-03T13:03:13.554784"
+        },
+        {
+          "game_id": "fc247dcc",
+          "config": "diseases_160_human_po",
+          "started_at": "2026-05-03T13:56:52.525251"
+        },
+        {
+          "game_id": "676fc9f4",
+          "config": "diseases_160_human_po",
+          "started_at": "2026-05-03T13:58:39.695659"
+        },
+        {
+          "game_id": "7a4f92fe",
+          "config": "diseases_160_human_po",
+          "started_at": "2026-05-04T09:46:44.567749"
+        }
+      ]
+    },
+    "lucas.simoes@egresso.ufg.br": {
+      "email": "lucas.simoes@egresso.ufg.br",
+      "config": "objects_158_human_hint",
+      "assigned_at": "2026-05-01T17:18:33.245776",
+      "games": 11,
+      "game_history": [
+        {
+          "game_id": "e228651a",
+          "config": "objects_158_human_hint",
+          "started_at": "2026-05-01T17:18:33.268428"
+        },
+        {
+          "game_id": "817cec84",
+          "config": "objects_158_human_hint",
+          "started_at": "2026-05-02T11:33:20.910027"
+        },
+        {
+          "game_id": "be470ba2",
+          "config": "objects_158_human_hint",
+          "started_at": "2026-05-02T13:13:20.628162"
+        },
+        {
+          "game_id": "a3482526",
+          "config": "objects_158_human_hint",
+          "started_at": "2026-05-02T14:56:55.373823"
+        },
+        {
+          "game_id": "ff086ec1",
+          "config": "diseases_160_human_po",
+          "started_at": "2026-05-02T16:00:30.871412"
+        },
+        {
+          "game_id": "a8d72947",
+          "config": "objects_158_human_po",
+          "started_at": "2026-05-02T16:00:41.992133"
+        },
+        {
+          "game_id": "261110e5",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-02T16:00:43.700713"
+        },
+        {
+          "game_id": "8cf1748d",
+          "config": "diseases_160_human_prior",
+          "started_at": "2026-05-02T16:00:45.242663"
+        },
+        {
+          "game_id": "7f99605f",
+          "config": "objects_158_human_po",
+          "started_at": "2026-05-02T16:00:50.742829"
+        },
+        {
+          "game_id": "604311e4",
+          "config": "diseases_160_human_po",
+          "started_at": "2026-05-02T16:00:52.331098"
+        },
+        {
+          "game_id": "adbf930e",
+          "config": "objects_158_human_po",
+          "started_at": "2026-05-02T16:00:54.251896"
+        }
+      ]
+    },
+    "luanagbmartins@gmail.com": {
+      "email": "luanagbmartins@gmail.com",
+      "config": "geo_160_human_fo",
+      "assigned_at": "2026-05-05T19:13:42.756011",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "f18b677a",
+          "config": "geo_160_human_fo",
+          "started_at": "2026-05-05T19:13:42.776906"
+        }
+      ]
+    },
+    "anapccjacintho@gmail.com": {
+      "email": "anapccjacintho@gmail.com",
+      "config": "objects_158_human_hint",
+      "assigned_at": "2026-05-02T11:25:23.244550",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "09f15cec",
+          "config": "objects_158_human_hint",
+          "started_at": "2026-05-02T11:25:23.254965"
+        }
+      ]
+    },
+    "vision@test.com": {
+      "email": "vision@test.com",
+      "config": "geo_160_human_po",
+      "assigned_at": "2026-05-03T12:33:16.084692",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "5dbbde04",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-03T12:33:16.115835"
+        }
+      ]
+    },
+    "juliana.resplande@egresso.ufg.br": {
+      "email": "juliana.resplande@egresso.ufg.br",
+      "config": "geo_160_human_po",
+      "assigned_at": "2026-05-03T13:09:16.513414",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "37d259c4",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-03T13:09:16.548317"
+        }
+      ]
+    },
+    "werikguimaraes@gmail.com": {
+      "email": "werikguimaraes@gmail.com",
+      "config": "geo_160_human_po",
+      "assigned_at": "2026-05-03T15:38:20.618560",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "4efa3c0a",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-03T15:38:20.640044"
+        }
+      ]
+    },
+    "hugovictorsantosg@gmail.com": {
+      "email": "hugovictorsantosg@gmail.com",
+      "config": "geo_160_human_po",
+      "assigned_at": "2026-05-03T20:28:45.883081",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "7075d515",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-03T20:28:45.904535"
+        }
+      ]
+    },
+    "victormatteus@discente.ufg.br": {
+      "email": "victormatteus@discente.ufg.br",
+      "config": "geo_160_human_po",
+      "assigned_at": "2026-05-04T19:11:00.885991",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "c7d55108",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-04T19:11:00.915320"
+        }
+      ]
+    },
+    "muriloguimaraes@discente.ufg.br": {
+      "email": "muriloguimaraes@discente.ufg.br",
+      "config": "objects_158_human_hint",
+      "assigned_at": "2026-05-05T08:20:01.469119",
+      "games": 2,
+      "game_history": [
+        {
+          "game_id": "525fb5e2",
+          "config": "objects_158_human_hint",
+          "started_at": "2026-05-05T08:20:01.483041"
+        },
+        {
+          "game_id": "ec787f15",
+          "config": "diseases_160_human_hint",
+          "started_at": "2026-05-05T08:33:16.631780"
+        }
+      ]
+    },
+    "muriloluz@ufg.br": {
+      "email": "muriloluz@ufg.br",
+      "config": "geo_160_human_po",
+      "assigned_at": "2026-05-04T18:31:11.890728",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "8aaac43e",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-04T18:31:11.910859"
+        }
+      ]
+    },
+    "luckeciano.carvalho.melo@cs.ox.ac.uk": {
+      "email": "luckeciano.carvalho.melo@cs.ox.ac.uk",
+      "config": "diseases_160_human_hint",
+      "assigned_at": "2026-05-05T06:38:06.741420",
+      "games": 4,
+      "game_history": [
+        {
+          "game_id": "d09f6416",
+          "config": "diseases_160_human_hint",
+          "started_at": "2026-05-05T06:38:06.752370"
+        },
+        {
+          "game_id": "a2ec7ba5",
+          "config": "geo_160_human_hint",
+          "started_at": "2026-05-05T06:38:18.546833"
+        },
+        {
+          "game_id": "048a804a",
+          "config": "objects_158_human_hint",
+          "started_at": "2026-05-05T11:28:50.870072"
+        },
+        {
+          "game_id": "930442c9",
+          "config": "geo_160_human_prior",
+          "started_at": "2026-05-05T11:29:01.311992"
+        }
+      ]
+    },
+    "joserafaelrebelo@gmail.com": {
+      "email": "joserafaelrebelo@gmail.com",
+      "config": "geo_160_human_po",
+      "assigned_at": "2026-05-04T19:03:59.984040",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "cf10248c",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-04T19:04:00.005595"
+        }
+      ]
+    },
+    "lucasolives31@gmail.com": {
+      "email": "lucasolives31@gmail.com",
+      "config": "geo_160_human_po",
+      "assigned_at": "2026-05-04T19:46:44.279208",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "c93999a5",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-04T19:46:44.302345"
+        }
+      ]
+    },
+    "gustavo_mota@discente.ufg.br": {
+      "email": "gustavo_mota@discente.ufg.br",
+      "config": "objects_158_human_hint",
+      "assigned_at": "2026-05-04T22:33:36.572674",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "4f60008f",
+          "config": "objects_158_human_hint",
+          "started_at": "2026-05-04T22:33:36.588533"
+        }
+      ]
+    },
+    "brunobrandao1523@gmail.com": {
+      "email": "brunobrandao1523@gmail.com",
+      "config": "geo_160_human_fo",
+      "assigned_at": "2026-05-04T22:31:36.765219",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "df3f37c0",
+          "config": "geo_160_human_fo",
+          "started_at": "2026-05-04T22:31:36.799862"
+        }
+      ]
+    },
+    "luisassuncao@discente.ufg.br": {
+      "email": "luisassuncao@discente.ufg.br",
+      "config": "geo_160_human_hint",
+      "assigned_at": "2026-05-05T12:31:45.566160",
+      "games": 4,
+      "game_history": [
+        {
+          "game_id": "2f255aaa",
+          "config": "geo_160_human_hint",
+          "started_at": "2026-05-05T12:31:45.598655"
+        },
+        {
+          "game_id": "e4b6f515",
+          "config": "diseases_160_human_prior",
+          "started_at": "2026-05-05T13:48:28.494289"
+        },
+        {
+          "game_id": "2fa3bd58",
+          "config": "geo_160_human_prior",
+          "started_at": "2026-05-05T13:48:39.838367"
+        },
+        {
+          "game_id": "b2eb1de1",
+          "config": "objects_158_human_hint",
+          "started_at": "2026-05-05T13:48:42.949751"
+        }
+      ]
+    },
+    "carlos.eduardo.ramos.duarte@gmail.com": {
+      "email": "carlos.eduardo.ramos.duarte@gmail.com",
+      "config": "objects_158_human_hint",
+      "assigned_at": "2026-05-05T11:15:00.815702",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "38877af2",
+          "config": "objects_158_human_hint",
+          "started_at": "2026-05-05T11:15:00.832409"
+        }
+      ]
+    },
+    "maria.borba@discente.ufg.br": {
+      "email": "maria.borba@discente.ufg.br",
+      "config": "objects_158_human_hint",
+      "assigned_at": "2026-05-05T13:11:05.931841",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "69130c46",
+          "config": "objects_158_human_hint",
+          "started_at": "2026-05-05T13:11:05.944530"
+        }
+      ]
+    },
+    "perpetuodeborah@gmail.com": {
+      "email": "perpetuodeborah@gmail.com",
+      "config": "objects_158_human_fo",
+      "assigned_at": "2026-05-06T13:44:34.015961",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "0e75d11f",
+          "config": "diseases_160_human_fo",
+          "started_at": "2026-05-06T13:44:34.029460"
+        }
+      ]
+    },
+    "deborah_test@test.com": {
+      "email": "deborah_test@test.com",
+      "config": "geo_160_human_po",
+      "assigned_at": "2026-05-06T13:52:12.219626",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "ad2a7cf7",
+          "config": "geo_160_human_po",
+          "started_at": "2026-05-06T13:52:12.247666"
+        }
+      ]
+    },
+    "deborah_test2@test.com": {
+      "email": "deborah_test2@test.com",
+      "config": "diseases_160_human_prior",
+      "assigned_at": "2026-05-06T13:52:35.591875",
+      "games": 1,
+      "game_history": [
+        {
+          "game_id": "317192aa",
+          "config": "diseases_160_human_prior",
+          "started_at": "2026-05-06T13:52:35.605637"
+        }
+      ]
+    },
+    "marcosdecarvalhoguimaraes@gmail.com": {
+      "email": "marcosdecarvalhoguimaraes@gmail.com",
+      "config": "objects_158_human_hint",
+      "assigned_at": "2026-05-09T19:59:19.109904",
+      "games": 2,
+      "game_history": [
+        {
+          "game_id": "393c9db3",
+          "config": "objects_158_human_hint",
+          "started_at": "2026-05-09T19:59:19.123370"
+        },
+        {
+          "game_id": "5c9376fc",
+          "config": "geo_160_human_prior",
+          "started_at": "2026-05-09T19:59:50.095390"
+        }
+      ]
     }
   },
   "config_counts": {
     "diseases_160_human_fo": 1,
     "diseases_160_human_hint": 1,
     "diseases_160_human_po": 1,
-    "diseases_160_human_prior": 0,
+    "diseases_160_human_prior": 1,
     "geo_160_human_fo": 0,
     "geo_160_human_hint": 0,
     "geo_160_human_po": 0,
