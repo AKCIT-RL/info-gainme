@@ -1,0 +1,394 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{natbib}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{graphicx}
+\graphicspath{{figures/}}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{multirow}
+\usepackage{subcaption}
+
+\title{Do Reasoning Models Ask Better Questions?\\A Formal Information-Theoretic Analysis of Multi-Turn LLM Games}
+
+\author{%
+  Daniel Machado\thanks{Equal contribution.} \\
+  AKCIT / UFG \\
+  Goiânia, Brazil \\
+  \texttt{daniel@akcit.ai} \\
+  \And
+  Bryan L. M. Oliveira\footnotemark[1] \\
+  AKCIT / UFG \\
+  Goiânia, Brazil \\
+  \texttt{bryan@akcit.ai} \\
+  \And
+  % Add other authors here
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Large Language Models excel at many tasks but struggle with a critical capability for autonomous agents: asking informative questions to resolve ambiguity under uncertainty. We introduce \textbf{InfoGainME}, an information-theoretic framework for evaluating LLMs' question-asking ability through multi-turn yes/no dialogue games over structured candidate pools. Unlike prior work using external scaffolding or preference optimization, we study whether \emph{intrinsic} Chain-of-Thought (CoT) reasoning enables models to implicitly perform Bayesian active learning. Across 25,513 games spanning three domains (geography, objects, diseases), seven model sizes (0.6B--235B), and two observability conditions, we find that: (1) CoT provides substantial benefits for models $\geq$4B parameters, with the largest effect (+0.30 win rate) in partially observable settings; (2) below 4B parameters, CoT is actively harmful; (3) larger models shift from attribute-based to feature-based questioning, leveraging world knowledge beyond explicit metadata; (4) 46\% of all turns produce zero information gain, with 43\% of these occurring when only one candidate remains---revealing a systematic failure to recognize convergence; and (5) CoT eliminates question redundancy, suggesting reasoning traces serve as implicit dialogue memory. Our analysis provides the first rigorous decomposition of how reasoning models navigate hypothesis spaces under uncertainty.
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+
+Information-seeking is fundamental to intelligent behavior. When an autonomous agent faces ambiguity---whether diagnosing a medical condition, troubleshooting a system, or understanding user intent---it must identify what information is missing and ask questions that efficiently reduce uncertainty. This capability, formalized through expected information gain (EIG), is central to Bayesian experimental design \citep{lindley1956measure,chaloner1995bayesian} and has recently attracted attention in the context of Large Language Models (LLMs).
+
+Despite impressive performance on reasoning benchmarks, LLMs struggle with proactive information-seeking. Prior work has documented that vanilla LLMs ask uninformative questions \citep{bertolazzi2023lets}, fail to update beliefs consistently across dialogue turns \citep{choudhury2025bedllm}, and require external scaffolding or fine-tuning to improve \citep{mazzaccara2024learning,hu2024uncertainty}. However, the emergence of \emph{reasoning models}---LLMs trained or prompted to generate explicit Chain-of-Thought (CoT) traces before answering---raises a fundamental question:
+
+\begin{center}
+\emph{Do reasoning traces enable LLMs to implicitly perform optimal information-seeking?}
+\end{center}
+
+This question is orthogonal to prior work. Approaches like BED-LLM \citep{choudhury2025bedllm} use external hypothesis enumeration and EIG computation at deployment time, while DPO-based methods \citep{mazzaccara2024learning} fine-tune models on high-EIG question pairs. Neither asks whether \emph{intrinsic} reasoning---the deliberation visible in CoT traces---allows models to approximate Bayesian active learning without external intervention.
+
+We introduce \textbf{InfoGainME} (Information Gain in Multi-turn Evaluation), a framework for studying this question through controlled dialogue games. Our contributions are:
+
+\begin{enumerate}
+    \item \textbf{A rigorous evaluation framework.} InfoGainME uses structured candidate pools with rich metadata (160 cities, 158 objects, 160 diseases), enabling precise measurement of information gain per turn, comparison to the theoretical optimal baseline (1 bit/turn), and cross-domain generalization analysis.
+    
+    \item \textbf{The first systematic study of reasoning models in information-seeking.} We compare CoT vs.\ non-CoT variants across seven model sizes (0.6B--235B), isolating the effect of reasoning from raw scale.
+    
+    \item \textbf{Reasoning trace analysis.} We operationalize the analysis of CoT traces through candidate question diversity, question-type taxonomy (attribute-based, feature-based, direct guess), and redundancy detection---providing the first quantitative decomposition of \emph{how} reasoning models explore hypothesis spaces.
+    
+    \item \textbf{A comprehensive failure analysis.} We categorize 167,767 zero-IG turns into root causes, discovering that 43\% occur when only one candidate remains---a systematic failure to recognize convergence and assert the answer.
+\end{enumerate}
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Information-Seeking Dialogue.}
+Traditional approaches to clarification and disambiguation include benchmarks like ClariQ \citep{aliannejadi2021building}, QReCC \citep{anantha2021open}, and AmbigQA \citep{min2020ambigqa}. These focus on generating clarifying questions but typically lack information-theoretic evaluation. \citet{deng2023prompting} showed that open-source LLMs struggle with proactive clarification, predominantly reacting to queries rather than taking initiative.
+
+\paragraph{20-Questions with LLMs.}
+The 20-questions game provides a natural testbed for information-theoretic question quality. \citet{bertolazzi2023lets} evaluated ChatGPT using hierarchical hypothesis spaces, finding that LLM questions approach optimality only when \emph{explicitly prompted} to enumerate updated hypotheses step-by-step. \citet{mazzaccara2024learning} improved Llama-2-7b using Direct Preference Optimization (DPO) on high-EIG vs.\ low-EIG question pairs, demonstrating that EIG serves as an effective training signal. \citet{zhang2024eda} introduced the Entity-Deduction Arena (EDA) benchmark, showing that GPT-4 outperforms humans and that RL training substantially improves weaker models. LMRL-Gym \citep{abdulhai2023lmrl} established that standard LLMs fail at multi-turn information gathering, motivating RL-based approaches. Paprika \citep{tajwar2025paprika} trains generally curious agents that transfer exploration skills across environments.
+
+\paragraph{Bayesian Experimental Design with LLMs.}
+BED-LLM \citep{choudhury2025bedllm} proposes sequential Bayesian experimental design for LLM information gathering, explicitly enumerating hypothesis pools and selecting questions to maximize EIG. IGPO \citep{wang2025igpo} uses turn-level information gain as an intrinsic reward for RL training. Both demonstrate that EIG is an effective optimization objective; our work uses EIG as an \emph{evaluation} metric to compare model families.
+
+\paragraph{Uncertainty and Planning in LLMs.}
+Uncertainty of Thoughts (UoT) \citep{hu2024uncertainty} augments LLMs with uncertainty-aware planning, achieving 38.1\% improvement on information-seeking tasks via explicit EIG maximization at inference time. Tree of Thoughts \citep{yao2023tot} enables deliberate search over reasoning paths with backtracking. While these approaches \emph{augment} models at inference time, we ask whether \emph{reasoning models}---trained via RLVR to generate CoT traces \citep{deepseek2025r1,openai2024o1,qwen2025qwen3}---have internalized similar capabilities without external scaffolding.
+
+\paragraph{Chain-of-Thought and its Limitations.}
+\citet{wei2022chain} established that CoT prompting improves complex reasoning in large models. However, \citet{sprague2024cot} found that CoT benefits primarily math and symbolic tasks, with smaller gains elsewhere. \citet{stechly2024thoughtlessness} documented cascading errors in CoT planning. Our work examines a domain not covered in prior CoT analyses: interactive, belief-tracking, multi-turn information gathering---where we hypothesize reasoning models' explicit deliberation should provide benefits analogous to implicit belief state maintenance.
+
+\paragraph{Multi-Turn Failures.}
+\citet{laban2025lost} found that all top LLMs exhibit 39\% performance drops in multi-turn vs.\ single-turn settings, with a key failure mode being premature commitment to early assumptions. Our failure analysis (Section~\ref{sec:results}) provides a formal decomposition of multi-turn failures through the information gain lens.
+
+\section{The InfoGainME Framework}
+\label{sec:framework}
+
+\subsection{Game Structure}
+
+InfoGainME implements a multi-turn dialogue game with three roles:
+
+\begin{itemize}
+    \item \textbf{Seeker}: The evaluated LLM, which asks yes/no questions to identify a hidden target from a candidate pool.
+    \item \textbf{Oracle}: Knows the target and provides truthful yes/no answers.
+    \item \textbf{Pruner}: Eliminates candidates inconsistent with each Oracle response, maintaining the active candidate set.
+\end{itemize}
+
+The Seeker operates in one of two observability modes:
+\begin{itemize}
+    \item \textbf{Fully Observable (FO)}: Sees the complete list of active candidates with metadata at each turn.
+    \item \textbf{Partially Observable (PO)}: Sees only the dialogue history; must implicitly track remaining candidates.
+\end{itemize}
+
+\subsection{Domains and Candidate Pools}
+
+We evaluate across three domains with distinct metadata structures:
+
+\begin{itemize}
+    \item \textbf{Geography}: 160 cities from the world's most populous, annotated with region, subregion, country, and state.
+    \item \textbf{Objects}: 158 everyday items (animals, vehicles, household objects, etc.), each with a category label.
+    \item \textbf{Diseases}: 160 medical conditions, each annotated with associated symptoms.
+\end{itemize}
+
+The structured metadata enables both targeted attribute-based questioning and measurement of strategy quality.
+
+\subsection{Information Gain Metric}
+
+We measure question quality through Shannon information gain:
+
+\begin{equation}
+    \text{IG} = H_{\text{before}} - H_{\text{after}} = \log_2(N_{\text{before}}) - \log_2(N_{\text{after}})
+\end{equation}
+
+where $N$ is the number of active candidates. Under a uniform prior, the theoretical optimum is 1 bit/turn (perfect binary search halves the candidate pool each turn). For a pool of size $N$, the optimal number of turns is $\lceil \log_2 N \rceil \approx 8$ for our pools.
+
+\section{Experimental Setup}
+\label{sec:setup}
+
+\subsection{Models}
+
+We evaluate models from the Qwen3 family spanning five orders of magnitude:
+\begin{itemize}
+    \item \textbf{0.6B}: Qwen3-0.6B
+    \item \textbf{4B}: Qwen3-4B-Instruct, Qwen3-4B-Thinking
+    \item \textbf{8B}: Qwen3-8B (with and without CoT prompting)
+    \item \textbf{30B}: Qwen3-30B-A3B-Instruct, Qwen3-30B-A3B-Thinking
+    \item \textbf{235B}: Qwen3-235B-A22B-Instruct (FP8)
+\end{itemize}
+
+The Oracle and Pruner use Qwen3-8B by default, with Gemma-3-12B-IT for validation.
+
+\subsection{Experimental Conditions}
+
+Each model is tested under:
+\begin{itemize}
+    \item \textbf{Observability}: FO vs.\ PO
+    \item \textbf{Reasoning}: CoT-enabled (Thinking variants or CoT prompting) vs.\ standard instruction-tuned
+    \item \textbf{Domains}: Geography, Objects, Diseases
+\end{itemize}
+
+We run 3 trials per target per condition, yielding 25,513 total conversations and 363,846 turns.
+
+\section{Results}
+\label{sec:results}
+
+\subsection{RQ1: Do Reasoning Models Optimize for Information Gain?}
+
+Figure~\ref{fig:cot_benefit} shows the effect of CoT on win rate across model sizes and observability modes. Table~\ref{tab:rq1} provides detailed metrics.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.85\textwidth]{fig1_cot_benefit.pdf}
+\caption{Effect of Chain-of-Thought on win rate. CoT is harmful for 0.6B (red region) but beneficial for $\geq$4B (green region), with the largest effect in partially observable settings.}
+\label{fig:cot_benefit}
+\end{figure}
+
+Table~\ref{tab:rq1} compares CoT vs.\ non-CoT variants across model sizes.
+
+\begin{table}[h]
+\centering
+\caption{Win rate and IG/turn by model size, observability, and reasoning mode. Bold indicates CoT improvement $>$0.05.}
+\label{tab:rq1}
+\small
+\begin{tabular}{llcccccc}
+\toprule
+Size & Mode & CoT WR & no-CoT WR & $\Delta$ WR & CoT IG/t & no-CoT IG/t & $\Delta$ IG/t \\
+\midrule
+0.6B & FO & 0.833 & 0.968 & -0.135 & 2.969 & 3.628 & -0.658 \\
+0.6B & PO & 0.713 & 0.900 & -0.187 & 3.380 & 4.261 & -0.880 \\
+\midrule
+4B & FO & 0.978 & 0.892 & \textbf{+0.086} & 0.796 & 0.691 & \textbf{+0.105} \\
+4B & PO & 0.574 & 0.277 & \textbf{+0.297} & 0.428 & 0.302 & \textbf{+0.126} \\
+\midrule
+8B & FO & 0.999 & 0.973 & +0.026 & 0.797 & 0.776 & +0.021 \\
+8B & PO & 0.626 & 0.598 & +0.028 & 0.443 & 0.430 & +0.013 \\
+\midrule
+30B & FO & 0.994 & 0.999 & -0.006 & 0.873 & 0.805 & \textbf{+0.068} \\
+30B & PO & 0.635 & 0.511 & \textbf{+0.124} & 0.463 & 0.378 & \textbf{+0.086} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key findings:}
+\begin{itemize}
+    \item CoT provides substantial benefits for models $\geq$4B, with the largest effect in PO mode. The 4B model shows +0.30 win rate improvement in PO---effectively doubling performance from 28\% to 57\%.
+    \item \textbf{CoT is harmful for 0.6B models} (-0.14 to -0.19 win rate). The high IG/turn values for 0.6B are artifacts of aggressive early guessing, not better information-seeking.
+    \item In FO mode, models $\geq$8B already achieve $>$97\% win rate, creating a ceiling effect. The CoT benefit is small but positive for IG efficiency.
+    \item \textbf{PO is where CoT matters}: Consistent improvement across 4B/8B/30B confirms that reasoning traces help maintain implicit belief states.
+\end{itemize}
+
+\subsection{RQ2: Does Scale Matter?}
+
+In the hardest condition (PO + CoT):
+\begin{itemize}
+    \item 4B: 57\% $\rightarrow$ 8B: 63\% $\rightarrow$ 30B: 64\%
+\end{itemize}
+
+Size helps with diminishing returns. The dramatic improvement from 0.6B to 4B (not shown in CoT metrics due to CoT being harmful at 0.6B) suggests \textbf{$\sim$4B parameters is the minimum threshold for effective reasoning-augmented information seeking}.
+
+\subsection{RQ3: How Do Reasoning Models Explore?}
+
+\paragraph{Question Type Analysis.}
+We classified 363,846 questions into attribute-based (targeting explicit metadata), feature-based (using world knowledge beyond metadata), and direct guesses. Figure~\ref{fig:question_types} shows the distribution across model configurations.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.9\textwidth]{fig2_question_types.pdf}
+\caption{Question type distribution by model configuration. Larger models (30B+) shift from attribute-based to feature-based questioning, leveraging world knowledge beyond explicit metadata. The 235B model in PO asks 65\% feature-based questions.}
+\label{fig:question_types}
+\end{figure}
+
+\begin{table}[h]
+\centering
+\caption{Question type distribution by model configuration.}
+\label{tab:question_types}
+\small
+\begin{tabular}{lcccc}
+\toprule
+Config & Attribute & Feature & Direct & Other \\
+\midrule
+4B FO no-CoT & 71.0\% & 23.0\% & 6.0\% & 0.0\% \\
+8B FO CoT & 68.6\% & 23.4\% & 8.1\% & 0.0\% \\
+30B FO Thinking & 37.7\% & 52.1\% & 10.2\% & 0.0\% \\
+235B PO no-CoT & 34.7\% & 65.3\% & 0.0\% & 0.0\% \\
+0.6B FO CoT & 61.6\% & 27.4\% & 2.1\% & 8.9\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Key finding}: Larger models (30B+) shift from attribute-based to feature-based questions. The 235B model in PO asks 65\% feature-based questions---it uses world knowledge to generate discriminative queries \emph{beyond} the explicit metadata. This represents emergent Bayesian reasoning through world knowledge.
+
+\paragraph{Redundancy Analysis.}
+CoT dramatically reduces question redundancy (Figure~\ref{fig:redundancy}):
+\begin{itemize}
+    \item 4B-Instruct: 5.2\% $\rightarrow$ 0\% with CoT
+    \item 30B-Instruct: 5.7\% $\rightarrow$ 0\% with CoT
+\end{itemize}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{fig7_redundancy.pdf}
+\caption{CoT eliminates question redundancy across model sizes. Check marks indicate models that achieve 0\% redundancy with CoT.}
+\label{fig:redundancy}
+\end{figure}
+
+This suggests reasoning traces serve as implicit dialogue memory, preventing models from re-asking equivalent questions.
+
+\subsection{RQ4: Performance vs.\ Optimal}
+
+Figure~\ref{fig:efficiency} shows efficiency relative to the theoretical optimal (1 bit/turn) across domains.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.8\textwidth]{fig5_efficiency.pdf}
+\caption{Information gathering efficiency relative to theoretical optimal (perfect binary search). Even in the best case (geography FO), models achieve only 80\% efficiency.}
+\label{fig:efficiency}
+\end{figure}
+
+\begin{table}[h]
+\centering
+\caption{Efficiency relative to theoretical optimal (1 bit/turn).}
+\label{tab:optimal}
+\small
+\begin{tabular}{lcccc}
+\toprule
+Domain & Mode & Avg IG/turn & Efficiency & Actual/Optimal turns \\
+\midrule
+Geography & FO & 0.80 & 80\% & $\sim$9/8 \\
+Geography & PO & 0.43 & 43\% & $\sim$17/8 \\
+Objects & FO & 0.73 & 73\% & $\sim$10/8 \\
+Objects & PO & 0.37 & 37\% & $\sim$20/8 \\
+Diseases & FO & 0.64 & 64\% & $\sim$12/8 \\
+Diseases & PO & 0.35 & 35\% & $\sim$21/8 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Even in the best case (geography FO), models achieve only 80\% of optimal efficiency. The disease domain is fundamentally harder due to high symptom overlap---binary search over flat symptom spaces is inefficient.
+
+\subsection{RQ6: Prior Influence}
+
+Full observability provides +0.36 to +0.62 win rate advantage---larger than any model or CoT manipulation.
+
+\textbf{CoT partially compensates}: For 4B, CoT reduces the FO-PO gap by 35\% (from 0.62 to 0.40). Figure~\ref{fig:prior} shows how reasoning traces ``recover'' about 30\% of the performance lost by removing the prior.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.7\textwidth]{fig6_prior_compensation.pdf}
+\caption{CoT reduces the observability gap. Percentages show the reduction in the FO-PO win rate gap when using CoT.}
+\label{fig:prior}
+\end{figure}
+
+\subsection{RQ7: Failure Analysis}
+
+We analyzed 167,767 zero-IG turns (46\% of all turns). Figure~\ref{fig:zero_ig} shows the root cause distribution.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.55\textwidth]{fig4_zero_ig.pdf}
+\caption{Root causes of zero information gain. Critically, 43\% occur when only one candidate remains---a systematic failure to recognize convergence and assert the answer.}
+\label{fig:zero_ig}
+\end{figure}
+
+\begin{table}[h]
+\centering
+\caption{Root causes of zero information gain turns.}
+\label{tab:failures}
+\small
+\begin{tabular}{lcc}
+\toprule
+Category & Count & \% of Zero-IG \\
+\midrule
+Genuinely uninformative & 94,206 & 56.2\% \\
+Only one candidate left & 72,298 & 43.1\% \\
+Unanswerable feature & 1,263 & 0.8\% \\
+Pruner error & 0 & 0.0\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Critical finding}: 43\% of zero-IG turns occur when only one candidate remains. Models systematically fail to recognize convergence and keep asking questions instead of asserting the answer. This ``failure to guess'' is as impactful as asking uninformative questions.
+
+\paragraph{Trajectory Clustering.}
+Among 5,269 losing games, we identified three distinct failure patterns (Figure~\ref{fig:trajectories}):
+\begin{itemize}
+    \item 52\% \textbf{Stall}: IG drops to $\sim$0 after turn 3 and never recovers
+    \item 41\% \textbf{Mixed}: Irregular, moderate IG throughout
+    \item 7\% \textbf{Volatile}: High IG on turn 1 ($\sim$3.6 bits), then crash
+\end{itemize}
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{fig3_trajectories.pdf}
+\caption{Failure trajectory clusters. The dashed line shows optimal IG (1 bit/turn). Stall is the dominant failure mode (52\%), where models get trapped in zero-IG loops.}
+\label{fig:trajectories}
+\end{figure}
+
+FO losses are 90\% stalls---when models can see candidates and still lose, it's almost always from getting stuck in uninformative questioning loops.
+
+\section{Discussion}
+\label{sec:discussion}
+
+\paragraph{The 4B Threshold.}
+Our results identify $\sim$4B parameters as a critical threshold. Below this, CoT is harmful---the model lacks capacity to leverage explicit reasoning effectively. Above it, CoT provides consistent benefits that plateau around 8B. This has practical implications: for information-seeking agents, investing in reasoning (via CoT prompting or thinking models) provides the best cost-benefit ratio at the 4-8B scale.
+
+\paragraph{World Knowledge as Implicit Prior.}
+The 235B model's shift to 65\% feature-based questions in PO mode reveals a qualitative change in strategy. Without explicit candidate metadata, large models fall back on world knowledge to generate discriminative queries (``Is it coastal?'', ``Is it chronic?''). This approximates Bayesian reasoning through implicit world models---the closest thing to emergent optimal questioning in our data.
+
+\paragraph{The Failure-to-Guess Problem.}
+Our most surprising finding is that 43\% of zero-IG turns occur with only one candidate remaining. Models are trained to ask questions, not to recognize when to stop. This suggests a missing training signal: current RLHF and preference optimization focus on question quality, not convergence detection. Future work should explicitly train models to assert answers when the hypothesis space has collapsed.
+
+\paragraph{Domain Structure Matters.}
+The dramatic difficulty gap between domains (geography: 11.8, diseases: 19.1 average difficulty, Figure~\ref{fig:difficulty}) reflects the discriminative power of available attributes. Geography has rich, hierarchical metadata (region/country/state) enabling efficient binary search. Diseases have flat, overlapping symptom lists where individual symptoms rarely eliminate more than a few candidates. This motivates domain-specific questioning strategies beyond simple binary search.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.65\textwidth]{fig8_domain_difficulty.pdf}
+\caption{Target difficulty by domain. The dashed line shows optimal (8 turns). Diseases are dramatically harder due to overlapping symptom spaces.}
+\label{fig:difficulty}
+\end{figure}
+
+\section{Conclusion}
+
+We introduced InfoGainME, a framework for evaluating LLMs' information-seeking through multi-turn dialogue games with precise information gain measurement. Our analysis of 25,513 games reveals that:
+
+\begin{enumerate}
+    \item Reasoning traces provide substantial benefits for models $\geq$4B, with the largest effect in partially observable settings.
+    \item There exists a minimum scale ($\sim$4B) for effective reasoning-augmented information seeking.
+    \item Large models shift from attribute-based to feature-based questioning, leveraging world knowledge as an implicit prior.
+    \item Nearly half of all questions produce zero information gain, with a systematic failure to recognize convergence and assert answers.
+    \item CoT eliminates redundancy, functioning as implicit dialogue memory.
+\end{enumerate}
+
+These findings provide the first rigorous characterization of how reasoning models navigate uncertainty and suggest concrete directions for improving LLM information-seeking: explicit convergence detection training, domain-aware questioning strategies, and scale-appropriate reasoning augmentation.
+
+\bibliography{references}
+\bibliographystyle{plainnat}
+
+\end{document}
