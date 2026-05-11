@@ -46,9 +46,11 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import random
 import re
 import sys
+import time
 from collections import Counter, defaultdict
 from dataclasses import dataclass
 from enum import Enum
@@ -57,6 +59,8 @@ from typing import Any, Optional
 
 from openai import AsyncOpenAI
 from pydantic import BaseModel, Field
+
+logger = logging.getLogger("classify_questions")
 
 
 # ---------------------------------------------------------------------------
@@ -546,11 +550,14 @@ async def _amain(args: argparse.Namespace) -> int:
         sample_indices = _parse_sample_indices(args.sample_indices)
         buckets = discover_conversations(args.outputs_root, run_index=args.run_index)
         n_total = sum(len(v) for v in buckets.values())
-        print(f"Discovered {n_total} conversations across {len(buckets)} strata"
-              f"{f' (run_index={args.run_index})' if args.run_index else ''}.")
+        logger.info(
+            "Discovered %d conversations across %d strata%s.",
+            n_total, len(buckets),
+            f" (run_index={args.run_index})" if args.run_index else "",
+        )
         for st, paths in sorted(buckets.items(), key=lambda kv: (kv[0].domain, kv[0].mode, kv[0].cot)):
             cot = "cot" if st.cot else "no_cot"
-            print(f"  {st.domain}/{st.mode}/{cot} [{st.model_slug}/{st.experiment}]: {len(paths)}")
+            logger.debug("  %s/%s/%s [%s/%s]: %d", st.domain, st.mode, cot, st.model_slug, st.experiment, len(paths))
         picks = stratified_sample(buckets, args.per_stratum, rng, sample_indices=sample_indices)
         if sample_indices is not None:
             mode = f"sample_indices={sample_indices}"
@@ -558,11 +565,11 @@ async def _amain(args: argparse.Namespace) -> int:
             mode = f"per_stratum={args.per_stratum}, seed={args.seed}"
         else:
             mode = "all"
-        print(f"Sampled {len(picks)} conversations ({mode}).")
+        logger.info("Sampled %d conversations (%s).", len(picks), mode)
 
     if args.dry_run:
         for st, path in picks:
-            print(f"  would classify: {st.domain}/{st.mode}/{'cot' if st.cot else 'no_cot'} :: {path}")
+            logger.info("  would classify: %s/%s/%s :: %s", st.domain, st.mode, "cot" if st.cot else "no_cot", path)
         return 0
     if not picks:
         print("No conversations to classify.", file=sys.stderr)
@@ -585,10 +592,10 @@ async def _amain(args: argparse.Namespace) -> int:
                 done_paths.add(rec["turns_path"])
                 existing.append(rec)
             except Exception as e:  # noqa: BLE001
-                print(f"  warning: skipping malformed JSONL line ({e})", file=sys.stderr)
+                logger.warning("skipping malformed JSONL line: %s", e)
 
     todo = [(st, p) for st, p in picks if str(p) not in done_paths]
-    print(f"Resume: {len(existing)} already classified, {len(todo)} to do.")
+    logger.info("Resume: %d already classified, %d to do.", len(existing), len(todo))
 
     results: list[dict[str, Any]] = []
     if todo:
@@ -598,6 +605,7 @@ async def _amain(args: argparse.Namespace) -> int:
         total = len(todo)
         n_done = 0
         lock = asyncio.Lock()
+        t0 = time.monotonic()
 
         async def _run(stratum: Stratum, path: Path) -> dict[str, Any]:
             nonlocal n_done
@@ -607,8 +615,18 @@ async def _amain(args: argparse.Namespace) -> int:
                     fh.write(json.dumps(res, ensure_ascii=False) + "\n")
                 n_done += 1
                 errs = sum(1 for t in res["turns"] if "error" in t["classification"])
-                tag = f"({errs} turn errors)" if errs else "ok"
-                print(f"[{n_done}/{total}] {stratum.experiment}/{path.parent.name} — {tag}")
+                elapsed = time.monotonic() - t0
+                rate = n_done / elapsed if elapsed > 0 else 0.0
+                eta_s = (total - n_done) / rate if rate > 0 else 0.0
+                eta = f"{int(eta_s // 60)}m{int(eta_s % 60):02d}s"
+                level = logging.WARNING if errs else logging.INFO
+                logger.log(
+                    level,
+                    "[%d/%d] %s/%s %s rate=%.2f conv/s eta=%s",
+                    n_done, total, stratum.experiment, path.parent.name,
+                    f"({errs} turn errors)" if errs else "ok",
+                    rate, eta,
+                )
             return res
 
         try:
@@ -621,17 +639,17 @@ async def _amain(args: argparse.Namespace) -> int:
     summary_path = out_jsonl.with_suffix(".summary.json")
     summary_path.write_text(json.dumps(summary, indent=2, ensure_ascii=False))
 
-    print("\n=== Summary ===")
-    print(f"  conversations: {summary['total_conversations']}")
-    print(f"  turns:         {summary['total_turns']} (errors: {summary['errors']})")
-    print(f"  question_type: {summary['question_type_counts']}")
-    print(f"  redundancy:    {summary['redundancy_counts']}")
+    logger.info("=== Summary ===")
+    logger.info("  conversations: %d", summary['total_conversations'])
+    logger.info("  turns:         %d (errors: %d)", summary['total_turns'], summary['errors'])
+    logger.info("  question_type: %s", summary['question_type_counts'])
+    logger.info("  redundancy:    %s", summary['redundancy_counts'])
     if summary["subclass_counts"]:
-        print("  subclass tags (top):")
+        logger.info("  subclass tags (top):")
         for name, count in list(summary["subclass_counts"].items())[:20]:
-            print(f"    {count:>4}  {name}")
-    print(f"\nWrote: {out_jsonl}  ({len(conv_results)} conversations)")
-    print(f"Wrote: {summary_path}")
+            logger.info("    %4d  %s", count, name)
+    logger.info("Wrote: %s  (%d conversations)", out_jsonl, len(conv_results))
+    logger.info("Wrote: %s", summary_path)
     return 0
 
 
@@ -666,7 +684,15 @@ def main() -> int:
     p.add_argument("--no-thinking", action="store_true", help="Disable reasoning mode on the classifier.")
     p.add_argument("--dry-run", action="store_true", help="List what would be classified and exit.")
     p.add_argument("--force", action="store_true", help="Re-classify all conversations, ignoring existing JSONL.")
+    p.add_argument("--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+                   help="Verbosidade do logging (default: INFO; DEBUG inclui lista por stratum).")
     args = p.parse_args()
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format="%(asctime)s %(levelname)s %(message)s",
+        datefmt="%H:%M:%S",
+        stream=sys.stderr,  # line-buffered por padrão; aparece em tempo real no tee
+    )
     return asyncio.run(_amain(args))
 
 
