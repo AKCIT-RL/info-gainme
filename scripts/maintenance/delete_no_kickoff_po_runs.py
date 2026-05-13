@@ -106,7 +106,13 @@ def runs_csv_drop_rows(csv_path: Path, conv_names: set[str], apply: bool) -> tup
     ]
     if apply and len(keep) != len(rows):
         backup = csv_path.with_suffix(".csv.bak_no_kickoff")
-        shutil.copy2(csv_path, backup)
+        try:
+            if backup.exists():
+                backup.unlink()
+            shutil.copy2(csv_path, backup)
+        except PermissionError:
+            # Backup é só audit-trail — se outro usuário travou o .bak, segue sem ele.
+            print(f"  (warn) backup skipped: {backup} (permission denied)")
         with csv_path.open("w", newline="") as f:
             w = csv.DictWriter(f, fieldnames=fieldnames)
             w.writeheader()
