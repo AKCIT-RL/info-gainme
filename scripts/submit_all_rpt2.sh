@@ -19,9 +19,11 @@ set -euo pipefail
 
 DRY_RUN=0
 ONLY=""
+VIA_SRUN=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
+    --via-srun) VIA_SRUN=1; shift ;;
     --only) ONLY="$2"; shift 2 ;;
     --only=*) ONLY="${1#--only=}"; shift ;;
     *) echo "Unknown arg: $1" >&2; exit 2 ;;
@@ -30,7 +32,11 @@ done
 
 # Common pieces
 EXPORT_BASE="ALL,MODE=seeker_only,MODEL2_NAME=Qwen3-8B"
+# srun mode: same KVs but as `env` assignments (no ALL, space-separated)
+ENV_BASE="MODE=seeker_only MODEL2_NAME=Qwen3-8B"
 SCRIPT="bash_scripts/dgx/run_full_benchmark.sh"
+PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
+SRUN_OPTS="--gres=gpu:1 --mem=60G --time=2-00:00:00"
 
 # JOB SPEC: tag|partition|owner|MODEL1_KV|extra_env|CONFIGS_TARGET
 #   owner = "daniel" (run locally) or "julia" (wrap via asjulia)
@@ -76,6 +82,25 @@ build_sbatch() {
   echo "sbatch --partition=${partition} --gres=gpu:1 --export=${export_str} ${SCRIPT}"
 }
 
+# srun mode: builds the inner shell command (no surrounding quotes).
+# Caller wraps it per-owner. The inner has NO single/double quotes and
+# NO $ so it can be embedded in either '...' (daniel) or \"...\" (julia).
+# sbatch is currently broken (slurmctld spool I/O error); srun bypasses it.
+build_srun_inner() {
+  local partition="$1"
+  local model_kv="$2"
+  local extra_env="$3"
+  local target="$4"
+  local tag="$5"
+  local kv_env="${model_kv//,/ }"   # commas → spaces for `env`
+  local env_str="${ENV_BASE} ${kv_env}"
+  if [[ -n "$extra_env" ]]; then
+    env_str="${env_str} ${extra_env//,/ }"
+  fi
+  env_str="${env_str} CONFIGS_TARGET=${target}"
+  echo "cd ${PROJECT_DIR} && env ${env_str} srun --partition=${partition} ${SRUN_OPTS} bash ${SCRIPT} 2>&1 | tee logs/srun-${tag}.out"
+}
+
 submitted=0
 for entry in "${JOBS[@]}"; do
   IFS='|' read -r tag partition owner model_kv extra_env target <<< "$entry"
@@ -84,23 +109,31 @@ for entry in "${JOBS[@]}"; do
     continue
   fi
 
-  cmd=$(build_sbatch "$partition" "$model_kv" "$extra_env" "$target")
-
   echo "── [$tag] partition=$partition owner=$owner ──"
-  if [[ "$owner" == "julia" ]]; then
-    # Wrap in asjulia (cd into project dir on h3's /raid first).
-    wrapped="bash -ic 'asjulia \"cd /raid/user_danielpedrozo/projects/info-gainme_dev; ${cmd}\"'"
-    echo "$wrapped"
-    if [[ $DRY_RUN -eq 0 ]]; then
-      eval "$wrapped"
-      submitted=$((submitted + 1))
+
+  if [[ $VIA_SRUN -eq 1 ]]; then
+    inner=$(build_srun_inner "$partition" "$model_kv" "$extra_env" "$target" "$tag")
+    if [[ "$owner" == "julia" ]]; then
+      # screen runs on h3 under julia. Inner goes in bash -c "..." (double
+      # quotes), the whole thing in asjulia "...", all in bash -ic '...'.
+      cmd="bash -ic 'asjulia \"screen -dmS srun-${tag} bash -c \\\"${inner}\\\"\"'"
+    else
+      # daniel: run screen locally; inner safely single-quoted.
+      cmd="screen -dmS srun-${tag} bash -c '${inner}'"
     fi
   else
-    echo "$cmd"
-    if [[ $DRY_RUN -eq 0 ]]; then
-      eval "$cmd"
-      submitted=$((submitted + 1))
+    sb=$(build_sbatch "$partition" "$model_kv" "$extra_env" "$target")
+    if [[ "$owner" == "julia" ]]; then
+      cmd="bash -ic 'asjulia \"cd ${PROJECT_DIR}; ${sb}\"'"
+    else
+      cmd="$sb"
     fi
+  fi
+
+  echo "$cmd"
+  if [[ $DRY_RUN -eq 0 ]]; then
+    eval "$cmd"
+    submitted=$((submitted + 1))
   fi
   echo
 done
@@ -109,6 +142,12 @@ if [[ $DRY_RUN -eq 1 ]]; then
   echo "(dry-run — nothing submitted)"
 else
   echo "Submitted $submitted job(s)."
+  if [[ $VIA_SRUN -eq 1 ]]; then
+    echo "srun mode: each job runs in a detached screen 'srun-<tag>'."
+    echo "  list screens: screen -ls"
+    echo "  attach:       screen -r srun-<tag>"
+    echo "  tail log:     tail -f logs/srun-<tag>.out"
+  fi
   echo "Check daniel: squeue -u \$USER"
   echo "Check julia: bash -ic 'asjulia \"squeue -u user_juliadollis\"'  (or alias: sqj)"
 fi
