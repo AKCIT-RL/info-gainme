@@ -61,6 +61,15 @@ def main() -> int:
         action="store_true",
         help="Print what would be downloaded without downloading",
     )
+    parser.add_argument(
+        "--ignore-file",
+        type=Path,
+        default=None,
+        help=(
+            "File with glob patterns to ignore (one per line, # comments allowed). "
+            "If omitted, defaults to <outputs-dir>/.hf-ignore when present."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -75,10 +84,36 @@ def main() -> int:
     outputs_dir = args.outputs_dir.resolve()
     repo_id = args.repo_id
 
+    # Build ignore_patterns: always exclude loose conversations/ trees
+    # (we only want conversations.zip). Append patterns from .hf-ignore
+    # if provided / present.
+    ignore_patterns: list[str] = ["**/conversations/**"]
+
+    ignore_file = args.ignore_file
+    if ignore_file is None:
+        candidate = outputs_dir / ".hf-ignore"
+        if candidate.exists():
+            ignore_file = candidate
+
+    if ignore_file and ignore_file.exists():
+        extra = [
+            line.strip()
+            for line in ignore_file.read_text().splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        # de-dupe while preserving order
+        for pat in extra:
+            if pat not in ignore_patterns:
+                ignore_patterns.append(pat)
+        print(f"Loaded {len(extra)} ignore patterns from {ignore_file}")
+
     if args.dry_run:
         print(f"[Dry run] Would download from: https://huggingface.co/datasets/{repo_id}")
         print(f"[Dry run] Destination: {outputs_dir}")
         print(f"[Dry run] workers={args.num_workers}")
+        print(f"[Dry run] ignore_patterns ({len(ignore_patterns)}):")
+        for pat in ignore_patterns:
+            print(f"           {pat}")
         return 0
 
     outputs_dir.mkdir(parents=True, exist_ok=True)
@@ -118,8 +153,9 @@ def main() -> int:
                 # experiment) — see scripts/hf/zip_experiments.py. The
                 # loose conversations/ trees may still be present in the
                 # repo from older uploads; ignore them so we don't pull
-                # the same data twice.
-                ignore_patterns=["**/conversations/**"],
+                # the same data twice. Extra patterns come from
+                # .hf-ignore (see --ignore-file).
+                ignore_patterns=ignore_patterns,
             )
             break
         except Exception as exc:
