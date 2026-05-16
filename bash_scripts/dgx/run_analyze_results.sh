@@ -10,6 +10,7 @@ umask 002
 
 CSV_PATH=""
 ONLY_RUN_ARG=""
+FORCE_ARG=""
 SHARED_GROUP="sd22"
 
 PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
@@ -21,6 +22,10 @@ while [[ $# -gt 0 ]]; do
         --only-run)
             ONLY_RUN_ARG="--only-run $2"
             shift 2
+            ;;
+        --force)
+            FORCE_ARG="--force"
+            shift
             ;;
         *)
             CSV_PATH="$1"
@@ -37,12 +42,13 @@ else
     echo "Modo: --all (todos os runs.csv sob outputs/)"
 fi
 [ -n "${ONLY_RUN_ARG}" ] && echo "Filtro: ${ONLY_RUN_ARG}"
+[ -n "${FORCE_ARG}" ] && echo "Force: recomputa ignorando mtime"
 echo "=========================================="
 
 if [ -n "${CSV_PATH}" ]; then
-    ANALYSIS_CMD="python3 scripts/analysis/analyze_results.py '${CSV_PATH}' ${ONLY_RUN_ARG}"
+    ANALYSIS_CMD="python3 scripts/analysis/analyze_results.py '${CSV_PATH}' ${ONLY_RUN_ARG} ${FORCE_ARG}"
 else
-    ANALYSIS_CMD="python3 scripts/analysis/analyze_results.py --all ${ONLY_RUN_ARG}"
+    ANALYSIS_CMD="python3 scripts/analysis/analyze_results.py --all ${ONLY_RUN_ARG} ${FORCE_ARG}"
 fi
 
 sg "${SHARED_GROUP}" -c "
