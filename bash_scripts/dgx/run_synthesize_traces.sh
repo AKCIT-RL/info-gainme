@@ -32,6 +32,14 @@ RUN_INDEX_ARGS=""
 [[ -n "${RUN_INDEX:-}" ]]      && RUN_INDEX_ARGS+=" --run-index ${RUN_INDEX}"
 [[ -n "${SAMPLE_INDICES:-}" ]] && RUN_INDEX_ARGS+=" --sample-indices ${SAMPLE_INDICES//_/,}"
 
+# FORCE=1            → re-sintetiza mesmo que já esteja no JSONL (unlinka o JSONL)
+# OUT_JSONL=path     → grava num JSONL separado (preserva o agregado default).
+#   ⚠️ eval-choices lê só o outputs/seeker_traces.jsonl default — traces num
+#   arquivo separado NÃO são vistos pelo eval-choices sem ajuste.
+EXTRA_ARGS=""
+[[ "${FORCE:-}" == "1" ]] && EXTRA_ARGS+=" --force"
+[[ -n "${OUT_JSONL:-}" ]] && EXTRA_ARGS+=" --out-jsonl ${OUT_JSONL}"
+
 # Default: Qwen3-235B no B200-2 (acesso direto na rede DGX). Override via BACKEND ou
 # BASE_URL/MODEL/API_KEY direto.
 BACKEND="${BACKEND:-qwen235b}"
@@ -82,12 +90,14 @@ echo "Log:      ${LOG_FILE}"
 echo "Started:  $(date)"
 [ -n "${RUN_INDEX:-}" ]      && echo "Run filter:   run_index=${RUN_INDEX}"
 [ -n "${SAMPLE_INDICES:-}" ] && echo "Sample idxs:  ${SAMPLE_INDICES//_/,}"
+echo "Out JSONL:    ${OUT_JSONL:-outputs/seeker_traces.jsonl (default — lido pelo eval-choices)}"
+[ "${FORCE:-}" == "1" ]      && echo "Force:        re-sintetiza (unlinka o JSONL alvo)"
 if [ -n "${RUNS_PATH}" ]; then
     echo "CSV:      ${RUNS_PATH}"
-    SYNTHESIS_CMD="python3 scripts/reasoning_traces/synthesize_traces.py --runs '${RUNS_PATH}' ${MODEL_ARGS}${RUN_INDEX_ARGS}"
+    SYNTHESIS_CMD="python3 scripts/reasoning_traces/synthesize_traces.py --runs '${RUNS_PATH}' ${MODEL_ARGS}${RUN_INDEX_ARGS}${EXTRA_ARGS}"
 else
     echo "Modo:     --all (todos os runs.csv sob outputs/)"
-    SYNTHESIS_CMD="python3 scripts/reasoning_traces/synthesize_traces.py --all ${MODEL_ARGS}${RUN_INDEX_ARGS}"
+    SYNTHESIS_CMD="python3 scripts/reasoning_traces/synthesize_traces.py --all ${MODEL_ARGS}${RUN_INDEX_ARGS}${EXTRA_ARGS}"
 fi
 echo "=========================================="
 
