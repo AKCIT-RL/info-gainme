@@ -39,6 +39,11 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export NCCL_P2P_DISABLE=0
 export NCCL_IB_DISABLE=1
 
+# Forçando gpus
+echo "GPUs disponíveis pelo SLURM: ${CUDA_VISIBLE_DEVICES}"
+export CUDA_VISIBLE_DEVICES=6,7
+echo "Forçando uso das GPUs: ${CUDA_VISIBLE_DEVICES}"
+
 # ── GPU list comes from srun, NOT hardcoded ───────────────────────
 if [ -z "${CUDA_VISIBLE_DEVICES:-}" ]; then
     echo "ERROR: CUDA_VISIBLE_DEVICES not set."
