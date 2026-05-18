@@ -1,13 +1,13 @@
 #!/bin/bash
 #SBATCH --job-name=vllm-info-gainme
 #SBATCH --partition=h100n3
-#SBATCH --gres=gpu:1
+#SBATCH --gres=gpu:4
 #SBATCH --mem=16G
 #SBATCH --time=15-00:00:00
 #SBATCH --output=/raid/user_danielpedrozo/projects/info-gainme_dev/logs/%x-%j.log
 
 # porta do servidor (interna ao nó)
-export VLLM_PORT=8800
+export VLLM_PORT=8802
 # Configuração do modelo
 # export MODEL="Qwen/Qwen3-30B-A3B-Thinking-2507"
 # export MODEL_NAME="Qwen3-30B-A3B-Thinking-2507"
@@ -16,12 +16,13 @@ export VLLM_PORT=8800
 # export MODEL_MAX_LEN=140000                  
 
 
-export MODEL="Qwen/Qwen3-8B"
-export MODEL_NAME="Qwen3-8B"
-export MODEL_GPU_MEM=0.95
-export MODEL_REASONING_PARSER="qwen3"
-export MODEL_MAX_LEN=32000
-export MODEL_MAX_NUM_SEQS=128
+# GPT OSS  (120b — cabe em 2×H100 80GB com MXFP4 nativo, TP=2)
+export MODEL="openai/gpt-oss-120b"
+export MODEL_NAME="gpt-oss-120b"
+export MODEL_GPU_MEM=0.92
+export MODEL_REASONING_PARSER="openai_gptoss"
+export MODEL_MAX_LEN=131072
+export MODEL_MAX_NUM_SEQS=64
 
 
 # export MODEL="Qwen/Qwen3-8B"
@@ -42,7 +43,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export NCCL_P2P_DISABLE=0
 export NCCL_IB_DISABLE=1
 # Especificar GPU específica (descomente uma das linhas abaixo)
-export CUDA_VISIBLE_DEVICES=4,5
+export CUDA_VISIBLE_DEVICES=6,7
 
 
 echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES}"
@@ -58,9 +59,14 @@ source /raid/user_danielpedrozo/projects/info-gainme_dev/.env
 export HF_TOKEN="${HF_TOKEN:?HF_TOKEN não definido no .env}"
 
 # garantir diretórios no /raid (estes serão mapeados para /workspace no container)
+
 mkdir -p /raid/user_danielpedrozo/projects/info-gainme_dev/logs
 mkdir -p /raid/user_danielpedrozo/models
 mkdir -p /raid/user_danielpedrozo/hf-cache
+
+# Garantir que existem os dirs do apptainer(APPTAINER_CACHEDIR e APPTAINER_TMPDIR já no env)
+mkdir -p ${APPTAINER_CACHEDIR}
+mkdir -p ${APPTAINER_TMPDIR}
 
 # Verificar GPUs disponíveis
 echo "=========================================="
