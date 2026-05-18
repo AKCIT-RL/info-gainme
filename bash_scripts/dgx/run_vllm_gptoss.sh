@@ -91,7 +91,12 @@ vllm_cmd="/usr/bin/python3 -m vllm.entrypoints.openai.api_server \
   --tensor-parallel-size ${NUM_GPUS} \
   --max-model-len ${MODEL_MAX_LEN} \
   --enable-prefix-caching \
+  --disable-custom-all-reduce \
   --reasoning-parser ${MODEL_REASONING_PARSER}"
+# --disable-custom-all-reduce: the custom P2P all-reduce kernel
+# (custom_all_reduce.cuh) fails with 'invalid argument' on B200/this vLLM rc
+# during warmup → kills a TP worker → "Engine core init failed / cancelled".
+# Forcing NCCL all-reduce is the fix (small TP latency cost, but it works).
 
 # Optional: upgrade vLLM in-container if the .sif lacks gpt-oss support
 # (GptOssForCausalLM needs vLLM >= 0.10 + MXFP4). Off by default.
