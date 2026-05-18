@@ -41,8 +41,8 @@ export NCCL_IB_DISABLE=1
 
 # Forçando gpus
 echo "GPUs disponíveis pelo SLURM: ${CUDA_VISIBLE_DEVICES}"
-export CUDA_VISIBLE_DEVICES=6,7
-echo "Forçando uso das GPUs: ${CUDA_VISIBLE_DEVICES}"
+# export CUDA_VISIBLE_DEVICES=6,7
+# echo "Forçando uso das GPUs: ${CUDA_VISIBLE_DEVICES}"
 
 # ── GPU list comes from srun, NOT hardcoded ───────────────────────
 if [ -z "${CUDA_VISIBLE_DEVICES:-}" ]; then
@@ -92,7 +92,8 @@ vllm_cmd="/usr/bin/python3 -m vllm.entrypoints.openai.api_server \
   --max-model-len ${MODEL_MAX_LEN} \
   --enable-prefix-caching \
   --disable-custom-all-reduce \
-  --reasoning-parser ${MODEL_REASONING_PARSER}"
+  --reasoning-parser ${MODEL_REASONING_PARSER}" \
+  --api-key "mocha"
 # --disable-custom-all-reduce: the custom P2P all-reduce kernel
 # (custom_all_reduce.cuh) fails with 'invalid argument' on B200/this vLLM rc
 # during warmup → kills a TP worker → "Engine core init failed / cancelled".
