@@ -42,8 +42,12 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # NCCL: NVLink P2P entre as 2 H100 (critico para TP=2 ser rapido)
 export NCCL_P2P_DISABLE=0
 export NCCL_IB_DISABLE=1
+
+
 # Especificar GPU específica (descomente uma das linhas abaixo)
+echo "GPUs disponíveis pelo SLURM: ${CUDA_VISIBLE_DEVICES}"
 export CUDA_VISIBLE_DEVICES=6,7
+echo "Forçando uso das GPUs: ${CUDA_VISIBLE_DEVICES}"
 
 
 echo "CUDA_VISIBLE_DEVICES: ${CUDA_VISIBLE_DEVICES}"
