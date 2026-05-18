@@ -27,6 +27,11 @@
 #   FORCE         "1" re-avalia mesmo com question_evaluation.json válido (default: vazio)
 #   DRY_RUN       "1" só lista o que seria processado  (default: vazio)
 #   TEMPERATURE   override de temperatura              (default: vazio = API decide)
+#   ONLY_RUN_INDEX  filtra run_index (ex.: 1)          (default: vazio = todos)
+#   SAMPLE_INDICES  posições por stratum, separadas por _ (ex.:
+#                   0_10_20_..._150). Restringe ao MESMO sample do
+#                   question_classification / synthesize_traces.
+#                   (default: vazio = todas as conversas)
 #
 # Argumento posicional opcional:
 #   $1   path para runs.csv específico. Se omitido, processa todos via --all.
@@ -44,7 +49,7 @@ SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 if [ -z "${STY:-}" ] && [ "${FOREGROUND:-0}" != "1" ]; then
     mkdir -p "${PROJECT_DIR}/logs"
     echo "Iniciando screen 'eval-choices' (run=${RUN_TS})..."
-    screen -dmS eval-choices bash -c "RUN_TS='${RUN_TS}' BACKEND='${BACKEND:-}' MAX_WORKERS='${MAX_WORKERS:-}' FORCE='${FORCE:-}' DRY_RUN='${DRY_RUN:-}' TEMPERATURE='${TEMPERATURE:-}' ONLY_RUN_INDEX='${ONLY_RUN_INDEX:-}' bash '${BASH_SOURCE[0]}' ${1:-}; exec bash"
+    screen -dmS eval-choices bash -c "RUN_TS='${RUN_TS}' BACKEND='${BACKEND:-}' MAX_WORKERS='${MAX_WORKERS:-}' FORCE='${FORCE:-}' DRY_RUN='${DRY_RUN:-}' TEMPERATURE='${TEMPERATURE:-}' ONLY_RUN_INDEX='${ONLY_RUN_INDEX:-}' SAMPLE_INDICES='${SAMPLE_INDICES:-}' bash '${BASH_SOURCE[0]}' ${1:-}; exec bash"
     echo "  screen -r eval-choices"
     echo "  tail -f ${PROJECT_DIR}/logs/eval-choices-latest.log"
     exit 0
@@ -75,6 +80,7 @@ EXTRA_FLAGS=""
 [[ "${DRY_RUN}" == "1" ]]          && EXTRA_FLAGS+=" --dry-run"
 [[ -n "${TEMPERATURE:-}" ]]        && EXTRA_FLAGS+=" --temperature ${TEMPERATURE}"
 [[ -n "${ONLY_RUN_INDEX:-}" ]]     && EXTRA_FLAGS+=" --only-run-index ${ONLY_RUN_INDEX}"
+[[ -n "${SAMPLE_INDICES:-}" ]]     && EXTRA_FLAGS+=" --sample-indices ${SAMPLE_INDICES//_/,}"
 
 mkdir -p "${PROJECT_DIR}/logs"
 
@@ -95,6 +101,7 @@ echo "Backend:       ${BACKEND}"
 echo "Endpoint:      ${BASE_URL}"
 echo "Oracle/Pruner: ${MODEL}"
 echo "Max workers:   ${MAX_WORKERS}"
+echo "Sample idx:    ${SAMPLE_INDICES:-(all conversations)}"
 echo "Flags:         ${EXTRA_FLAGS:-(default: resume on)}"
 echo "Log:           ${LOG_FILE}"
 echo "Started:       $(date)"
