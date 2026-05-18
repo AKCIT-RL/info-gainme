@@ -485,8 +485,14 @@ def run_for_csv(
     dry_run: bool,
     dataset_csv: Optional[Path],
     only_run_index: Optional[int] = None,
+    sample_filter: Optional[Set[Path]] = None,
 ) -> int:
-    """Process a single runs.csv. Returns 0 on success, 1 if any errors."""
+    """Process a single runs.csv. Returns 0 on success, 1 if any errors.
+
+    ``sample_filter``: if given, only conversations whose resolved path is in
+    this set are evaluated (used by --sample-indices to mirror the exact
+    question_classification / synthesize_traces sample).
+    """
     try:
         conversation_dirs = find_conversation_dirs_from_runs_csv(
             runs_csv_path, outputs_base_dir, only_run_index=only_run_index,
@@ -494,6 +500,11 @@ def run_for_csv(
     except FileNotFoundError as e:
         logger.error("Error: %s", e)
         return 1
+
+    if sample_filter is not None:
+        conversation_dirs = [
+            c for c in conversation_dirs if c.resolve() in sample_filter
+        ]
 
     if not conversation_dirs:
         logger.warning("No conversation directories found in %s — skipping", runs_csv_path)
@@ -636,6 +647,16 @@ def main():
              "run_index (e.g. 1 to keep just run01).",
     )
     parser.add_argument(
+        "--sample-indices",
+        type=str,
+        default=None,
+        help="Comma-separated positional indices (e.g. 0,10,20,...,150). When set, "
+             "restricts evaluation to exactly the same conversations that "
+             "question_classification / synthesize_traces pick: reuses "
+             "classify_questions.discover_conversations + stratified_sample so the "
+             "sample is byte-identical across analysis pipelines. Only CoT strata.",
+    )
+    parser.add_argument(
         "--max-workers",
         type=int,
         default=1,
@@ -687,6 +708,39 @@ def main():
         logger.info("📚 Pre-loading seeker_traces.jsonl index (%s)…", seeker_traces_jsonl)
         _get_jsonl_index(seeker_traces_jsonl)
 
+    # --sample-indices: reuse the EXACT selection from question_classification
+    # (discover_conversations + stratified_sample) so the evaluated set is
+    # byte-identical to the classify / synthesize_traces sample.
+    sample_filter: Optional[Set[Path]] = None
+    if args.sample_indices:
+        import random
+        from scripts.question_classification.classify_questions import (
+            discover_conversations,
+            stratified_sample,
+        )
+        try:
+            indices = [int(x) for x in args.sample_indices.split(",") if x.strip() != ""]
+        except ValueError:
+            logger.error("Invalid --sample-indices: %r", args.sample_indices)
+            return 1
+        buckets = discover_conversations(
+            args.outputs_base_dir, run_index=args.only_run_index
+        )
+        # eval-choices is CoT-only (needs reasoning traces)
+        buckets = {st: ps for st, ps in buckets.items() if st.cot}
+        picks = stratified_sample(
+            buckets, per_stratum=None, rng=random.Random(0),
+            sample_indices=indices,
+        )
+        sample_filter = {turns.parent.resolve() for _st, turns in picks}
+        logger.info(
+            "🎯 --sample-indices: %d positions × %d CoT strata → %d conversations",
+            len(indices), len(buckets), len(sample_filter),
+        )
+        if not sample_filter:
+            logger.error("Sample filter is empty — nothing to evaluate.")
+            return 1
+
     if args.all:
         runs_csvs = find_cot_runs_csvs(args.outputs_base_dir)
         logger.info("🔎 %d CoT runs.csv found under %s", len(runs_csvs), args.outputs_base_dir)
@@ -700,6 +754,7 @@ def main():
                 unified_jsonl, done_keys,
                 args.max_workers, args.force, args.dry_run, args.dataset_csv,
                 only_run_index=args.only_run_index,
+                sample_filter=sample_filter,
             )
             if rc != 0:
                 any_error = True
@@ -713,6 +768,7 @@ def main():
             unified_jsonl, done_keys,
             args.max_workers, args.force, args.dry_run, args.dataset_csv,
             only_run_index=args.only_run_index,
+            sample_filter=sample_filter,
         )
 
 
