@@ -634,11 +634,15 @@ async def _amain(args: argparse.Namespace) -> int:
         async def _run(stratum: Stratum, path: Path) -> dict[str, Any]:
             nonlocal n_done
             res = await classify_conversation(path, stratum, client, args.model, thinking, semaphore)
+            errs = sum(1 for t in res["turns"] if "error" in t["classification"])
             async with lock:
-                with out_jsonl.open("a", encoding="utf-8") as fh:
-                    fh.write(json.dumps(res, ensure_ascii=False) + "\n")
+                # Conversa que falhou NÃO é persistida: assim o turns_path não
+                # entra em done_paths e o resume seguinte a refaz sozinho (sem
+                # precisar limpar o jsonl). O jsonl só acumula registros bons.
+                if not errs:
+                    with out_jsonl.open("a", encoding="utf-8") as fh:
+                        fh.write(json.dumps(res, ensure_ascii=False) + "\n")
                 n_done += 1
-                errs = sum(1 for t in res["turns"] if "error" in t["classification"])
                 elapsed = time.monotonic() - t0
                 rate = n_done / elapsed if elapsed > 0 else 0.0
                 eta_s = (total - n_done) / rate if rate > 0 else 0.0
@@ -648,7 +652,7 @@ async def _amain(args: argparse.Namespace) -> int:
                     level,
                     "[%d/%d] %s/%s %s rate=%.2f conv/s eta=%s",
                     n_done, total, stratum.experiment, path.parent.name,
-                    f"({errs} turn errors)" if errs else "ok",
+                    f"({errs} turn errors — NÃO salvo, refaz no próximo run)" if errs else "ok",
                     rate, eta,
                 )
             return res
