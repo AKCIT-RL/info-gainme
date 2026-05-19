@@ -58,19 +58,23 @@ COLOR_COT = "#1f77b4"
 COLOR_NO_COT = "#aec7e8"
 
 
-def _is_fo(exp_name: str) -> bool:
+def _classify(exp_name: str) -> tuple[str, bool] | None:
+    """(obs, is_cot) só pro config CANÔNICO.
+
+    Casa apenas o sufixo exato — exclui variantes não-canônicas
+    (_with_prior, _with_kickoff, _ont, …) e o modo _io_, que não devem
+    aparecer nesse gráfico (senão viram linhas duplicadas no painel).
+    """
     e = exp_name.lower()
-    return "_fo" in e or "fully_observable" in e
-
-
-def _is_po(exp_name: str) -> bool:
-    e = exp_name.lower()
-    return "_po" in e or "partially_observable" in e
-
-
-def _is_cot(exp_name: str) -> bool:
-    e = exp_name.lower()
-    return "no_cot" not in e
+    if e.endswith("_fo_no_cot"):
+        return "FO", False
+    if e.endswith("_fo_cot"):
+        return "FO", True
+    if e.endswith("_po_no_cot"):
+        return "PO", False
+    if e.endswith("_po_cot"):
+        return "PO", True
+    return None
 
 
 def _ensure_aggregated(exp_dir: Path, force: bool) -> Path | None:
@@ -106,18 +110,16 @@ def _collect(outputs_root: Path, oracle: str, domain: str, force: bool):
         for exp_dir in sorted(p for p in triple.iterdir() if p.is_dir()):
             if not exp_dir.name.lower().startswith(domain.lower()):
                 continue
-            if _is_fo(exp_dir.name):
-                obs = "FO"
-            elif _is_po(exp_dir.name):
-                obs = "PO"
-            else:
+            kind = _classify(exp_dir.name)
+            if kind is None:
                 continue
+            obs, is_cot = kind
             agg = _ensure_aggregated(exp_dir, force)
             if agg is None:
                 continue
             data = load_aggregated_data(agg)
             if data:
-                out[slug][obs].append((_is_cot(exp_dir.name), data))
+                out[slug][obs].append((is_cot, data))
     return out
 
 
