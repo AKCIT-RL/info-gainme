@@ -7,7 +7,7 @@
 #SBATCH --output=/raid/user_danielpedrozo/projects/info-gainme_dev/logs/%x-%j.log
 
 # porta do servidor (interna ao nó)
-export VLLM_PORT=8802
+export VLLM_PORT=8226
 # Configuração do modelo
 # export MODEL="Qwen/Qwen3-30B-A3B-Thinking-2507"
 # export MODEL_NAME="Qwen3-30B-A3B-Thinking-2507"
@@ -17,12 +17,12 @@ export VLLM_PORT=8802
 
 
 # GPT OSS  (120b — cabe em 2×H100 80GB com MXFP4 nativo, TP=2)
-export MODEL="openai/gpt-oss-120b"
-export MODEL_NAME="gpt-oss-120b"
+export MODEL="google/gemma-4-31B-it"
+export MODEL_NAME="gemma-4-31B-it"
 export MODEL_GPU_MEM=0.92
-export MODEL_REASONING_PARSER="openai_gptoss"
-export MODEL_MAX_LEN=131072
-export MODEL_MAX_NUM_SEQS=64
+export MODEL_REASONING_PARSER="gemma4"
+export MODEL_MAX_LEN=128000
+export MODEL_MAX_NUM_SEQS=128
 
 
 # export MODEL="Qwen/Qwen3-8B"
