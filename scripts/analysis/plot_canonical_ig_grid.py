@@ -134,7 +134,11 @@ def _collect(outputs_root: Path, oracle: str, domain: str, force: bool):
     return out
 
 
-def _plot_panel(ax, lines, title, ylabel):
+def _plot_panel(ax, lines, title, ylabel, variant="both"):
+    if variant == "cot":
+        lines = [(c, d) for c, d in lines if c]
+    elif variant == "no_cot":
+        lines = [(c, d) for c, d in lines if not c]
     if not lines:
         ax.text(0.5, 0.5, "No data", ha="center", va="center",
                 transform=ax.transAxes, fontsize=12)
@@ -174,6 +178,10 @@ def main() -> int:
     ap.add_argument("--domain", default="geo")
     ap.add_argument("--force", action="store_true",
                     help="Re-agrega mesmo se aggregated_ig_over_time.jsonl existir.")
+    ap.add_argument("--variant", choices=["both", "cot", "no_cot"],
+                    default="both",
+                    help="both = CoT e No-CoT no mesmo painel; cot / no_cot = "
+                         "só aquela variante (figuras separadas).")
     args = ap.parse_args()
 
     collected = _collect(args.outputs_root, args.oracle, args.domain, args.force)
@@ -185,7 +193,7 @@ def main() -> int:
     for r, obs in enumerate(OBS_ROWS):
         for col, (slug, disp) in enumerate(CANONICAL):
             _plot_panel(axes[r][col], collected[slug][obs], disp,
-                        ylabel=(col == 0))
+                        ylabel=(col == 0), variant=args.variant)
 
     # rótulos laterais centrados em cada linha de subplots
     for r, obs in enumerate(OBS_ROWS):
@@ -194,12 +202,15 @@ def main() -> int:
         fig.text(0.008, y, OBS_LABEL[obs], rotation=90, fontsize=14,
                  fontweight="bold", ha="center", va="center")
 
-    handles = [
-        plt.Line2D([0], [0], color=COLOR_COT, lw=2, marker="o", markersize=5),
-        plt.Line2D([0], [0], color=COLOR_NO_COT, lw=2, marker="o", markersize=5),
-    ]
-    fig.legend(handles, ["CoT", "No CoT"], loc="lower center",
-               ncol=2, fontsize=12, frameon=True)
+    leg = []
+    if args.variant in ("both", "cot"):
+        leg.append((COLOR_COT, "CoT"))
+    if args.variant in ("both", "no_cot"):
+        leg.append((COLOR_NO_COT, "No CoT"))
+    handles = [plt.Line2D([0], [0], color=c, lw=2, marker="o", markersize=5)
+               for c, _ in leg]
+    fig.legend(handles, [n for _, n in leg], loc="lower center",
+               ncol=len(leg), fontsize=12, frameon=True)
 
     plt.tight_layout(rect=[0.02, 0.06, 1, 0.99])
     args.out.parent.mkdir(parents=True, exist_ok=True)
