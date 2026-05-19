@@ -94,33 +94,38 @@ def synthesize_reasoning_trace(
         {"role": "user", "content": user_content}
     ]
     
-    # Generate synthesis using stateless call
+    # Generate synthesis using stateless call.
+    # `response` (full model output) is saved by default as `raw_response`
+    # for auditing / model comparison — on success AND on failure.
+    response = ""
     try:
         response = llm_adapter.generate(
             messages=messages,
             stateless=True,
             add_to_history=False
         )
-        
+
         # Parse JSON response
         parsed = parse_first_json_object(response)
         if not parsed:
             raise ValueError(f"Invalid JSON response: {response}")
-        
+
         # Validate required fields
         required_fields = ["summary", "questions_considered", "decision_rationale"]
         for field in required_fields:
             if field not in parsed:
                 parsed[field] = f"Missing field: {field}"
-        
+
+        parsed["raw_response"] = response
         return parsed
-        
+
     except Exception as e:
         # Fallback: create basic structure if synthesis fails
         return {
             "summary": "Synthesis failed",
             "questions_considered": [],
-            "decision_rationale": f"Error: {str(e)}"
+            "decision_rationale": f"Error: {str(e)}",
+            "raw_response": response
         }
 
 
