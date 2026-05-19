@@ -36,9 +36,12 @@ RUN_INDEX_ARGS=""
 # OUT_JSONL=path     → grava num JSONL separado (preserva o agregado default).
 #   ⚠️ eval-choices lê só o outputs/seeker_traces.jsonl default — traces num
 #   arquivo separado NÃO são vistos pelo eval-choices sem ajuste.
+# NO_THINKING=1     → desliga thinking do modelo de síntese
+#   (chat_template_kwargs.enable_thinking=false). Sem reasoning no raw_response.
 EXTRA_ARGS=""
 [[ "${FORCE:-}" == "1" ]] && EXTRA_ARGS+=" --force"
 [[ -n "${OUT_JSONL:-}" ]] && EXTRA_ARGS+=" --out-jsonl ${OUT_JSONL}"
+[[ "${NO_THINKING:-}" == "1" ]] && EXTRA_ARGS+=" --no-thinking"
 
 # Default: Qwen3-235B no B200-2 (acesso direto na rede DGX). Override via BACKEND ou
 # BASE_URL/MODEL/API_KEY direto.
@@ -92,6 +95,7 @@ echo "Started:  $(date)"
 [ -n "${SAMPLE_INDICES:-}" ] && echo "Sample idxs:  ${SAMPLE_INDICES//_/,}"
 echo "Out JSONL:    ${OUT_JSONL:-outputs/seeker_traces.jsonl (default — lido pelo eval-choices)}"
 [ "${FORCE:-}" == "1" ]      && echo "Force:        re-sintetiza (unlinka o JSONL alvo)"
+[ "${NO_THINKING:-}" == "1" ] && echo "Thinking:     OFF (enable_thinking=false — sem reasoning no raw_response)"
 if [ -n "${RUNS_PATH}" ]; then
     echo "CSV:      ${RUNS_PATH}"
     SYNTHESIS_CMD="python3 scripts/reasoning_traces/synthesize_traces.py --runs '${RUNS_PATH}' ${MODEL_ARGS}${RUN_INDEX_ARGS}${EXTRA_ARGS}"

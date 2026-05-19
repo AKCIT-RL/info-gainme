@@ -202,14 +202,23 @@ def main() -> None:
     parser.add_argument("--sample-indices", type=str, default=None,
                         help="Posições 0-based separadas por vírgula dentro da runs.csv após "
                              "--run-index (ex: '0,10,20,...,150'). Determinístico.")
+    parser.add_argument("--no-thinking", action="store_true",
+                        help="Desliga o thinking do modelo de síntese: envia "
+                             "chat_template_kwargs.enable_thinking=false (override do "
+                             "default-on de servidores como gemma4). Sem reasoning no raw_response.")
     args = parser.parse_args()
     sample_indices = _parse_sample_indices(args.sample_indices)
+
+    extra = {}
+    if args.no_thinking:
+        extra = {"extra_body": {"chat_template_kwargs": {"enable_thinking": False}}}
 
     llm_config = LLMConfig(
         model=args.model,
         api_key=args.api_key,
         base_url=args.base_url,
         timeout=120.0,
+        extra=extra,
     )
     logger.info("🤖 Modelo: %s @ %s", args.model, args.base_url)
 
