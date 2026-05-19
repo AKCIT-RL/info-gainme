@@ -174,6 +174,28 @@ class Stratum:
     cot: bool
 
 
+def _slug(name: str) -> str:
+    """Model name → output-dir slug (the triple uses '/' replaced by '-')."""
+    return name.replace("/", "-")
+
+
+def _triple_parts(dir_name: str) -> Optional[tuple[str, str, str]]:
+    """Parse 's_<seeker>__o_<oracle>__p_<pruner>' → (seeker, oracle, pruner).
+
+    Returns None if the dir name isn't triple-shaped. Segments are matched
+    EXACTLY by the caller, so 'Nemotron-Cascade-8B' never matches
+    'Nemotron-Cascade-8B-Thinking'.
+    """
+    if not dir_name.startswith("s_"):
+        return None
+    rest = dir_name[2:]
+    if "__o_" not in rest or "__p_" not in rest:
+        return None
+    seeker, rest2 = rest.split("__o_", 1)
+    oracle, pruner = rest2.split("__p_", 1)
+    return seeker, oracle, pruner
+
+
 def _parse_experiment(model_slug: str, experiment: str) -> Stratum | None:
     exp = experiment.lower()
     for prefix in ("geo", "objects", "diseases"):
@@ -201,6 +223,8 @@ def _conversation_run_index(turns_path: Path) -> Optional[int]:
 def discover_conversations(
     outputs_root: Path,
     run_index: Optional[int] = None,
+    seekers: Optional[set[str]] = None,
+    oracle: Optional[str] = None,
 ) -> dict[Stratum, list[Path]]:
     """Walk outputs/models/<triple>/<experiment>/conversations/.
 
@@ -217,6 +241,15 @@ def discover_conversations(
     if not models_root.exists():
         return buckets
     for model_dir in sorted(p for p in models_root.iterdir() if p.is_dir()):
+        if seekers is not None or oracle is not None:
+            parts = _triple_parts(model_dir.name)
+            if parts is None:
+                continue
+            s, o, _ = parts
+            if seekers is not None and s not in seekers:
+                continue
+            if oracle is not None and o != oracle:
+                continue
         for exp_dir in sorted(p for p in model_dir.iterdir() if p.is_dir()):
             stratum = _parse_experiment(model_dir.name, exp_dir.name)
             if stratum is None:
@@ -577,12 +610,21 @@ async def _amain(args: argparse.Namespace) -> int:
         picks = [(_stratum_from_turns_file(args.turns_file), args.turns_file)]
     else:
         sample_indices = _parse_sample_indices(args.sample_indices)
-        buckets = discover_conversations(args.outputs_root, run_index=args.run_index)
+        seekers = (
+            {_slug(s.strip()) for s in args.seekers.split(",") if s.strip()}
+            if args.seekers else None
+        )
+        oracle = _slug(args.oracle.strip()) if args.oracle else None
+        buckets = discover_conversations(
+            args.outputs_root, run_index=args.run_index, seekers=seekers, oracle=oracle
+        )
         n_total = sum(len(v) for v in buckets.values())
         logger.info(
-            "Discovered %d conversations across %d strata%s.",
+            "Discovered %d conversations across %d strata%s%s%s.",
             n_total, len(buckets),
             f" (run_index={args.run_index})" if args.run_index else "",
+            f" (seekers={sorted(seekers)})" if seekers else "",
+            f" (oracle={oracle})" if oracle else "",
         )
         for st, paths in sorted(buckets.items(), key=lambda kv: (kv[0].domain, kv[0].mode, kv[0].cot)):
             cot = "cot" if st.cot else "no_cot"
@@ -712,6 +754,14 @@ def main() -> int:
                    help="Comma-separated 0-based positions in each stratum's sorted path list "
                         "(e.g. '0,10,20,30,40,50,60,70,80,90,100'). Deterministic and aligned "
                         "with judge_eval. Overrides --per-stratum/--seed when provided.")
+    p.add_argument("--seekers", type=str, default=None,
+                   help="Comma-separated seeker model names to keep (e.g. "
+                        "'Qwen3-8B,google/gemma-4-31B-it'). '/' is slugified to '-' to "
+                        "match the s_<seeker>__o_<oracle>__p_<pruner> dir. Exact segment "
+                        "match. Omit = all seekers.")
+    p.add_argument("--oracle", type=str, default=None,
+                   help="Keep only triples whose oracle equals this (e.g. 'Qwen3-8B'). "
+                        "Omit = any oracle.")
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--max-concurrency", type=int, default=16, help="Max in-flight LLM requests.")
     p.add_argument("--no-thinking", action="store_true", help="Disable reasoning mode on the classifier.")

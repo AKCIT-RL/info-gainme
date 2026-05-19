@@ -42,7 +42,7 @@ SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 if [ -z "${STY:-}" ] && [ "${FOREGROUND:-0}" != "1" ]; then
     mkdir -p "${PROJECT_DIR}/logs"
     echo "Iniciando screen 'classify' (run=${RUN_TS})..."
-    screen -dmS classify bash -c "RUN_TS='${RUN_TS}' BACKEND='${BACKEND:-}' PER_STRATUM='${PER_STRATUM:-}' MAX_CONCURRENCY='${MAX_CONCURRENCY:-}' NO_THINKING='${NO_THINKING:-}' FORCE='${FORCE:-}' SEED='${SEED:-}' RUN_INDEX='${RUN_INDEX:-}' SAMPLE_INDICES='${SAMPLE_INDICES:-}' OUT_JSONL='${OUT_JSONL:-}' bash '${BASH_SOURCE[0]}'; exec bash"
+    screen -dmS classify bash -c "RUN_TS='${RUN_TS}' BACKEND='${BACKEND:-}' PER_STRATUM='${PER_STRATUM:-}' MAX_CONCURRENCY='${MAX_CONCURRENCY:-}' NO_THINKING='${NO_THINKING:-}' FORCE='${FORCE:-}' SEED='${SEED:-}' RUN_INDEX='${RUN_INDEX:-}' SAMPLE_INDICES='${SAMPLE_INDICES:-}' SEEKERS='${SEEKERS:-}' ORACLE='${ORACLE:-}' OUT_JSONL='${OUT_JSONL:-}' bash '${BASH_SOURCE[0]}'; exec bash"
     echo "  screen -r classify"
     echo "  tail -f ${PROJECT_DIR}/logs/classify-latest.log"
     exit 0
@@ -84,6 +84,10 @@ EXTRA_FLAGS=""
 [[ "${FORCE}" == "1" ]]       && EXTRA_FLAGS+=" --force"
 [[ -n "${RUN_INDEX:-}" ]]     && EXTRA_FLAGS+=" --run-index ${RUN_INDEX}"
 [[ -n "${SAMPLE_INDICES:-}" ]] && EXTRA_FLAGS+=" --sample-indices ${SAMPLE_INDICES//_/,}"
+# SEEKERS: comma-separated seeker model names (whitelist). ORACLE: required
+# oracle model. Restringe os exps ao triple s_<seeker>__o_<oracle>__p_.
+[[ -n "${SEEKERS:-}" ]]       && EXTRA_FLAGS+=" --seekers ${SEEKERS}"
+[[ -n "${ORACLE:-}" ]]        && EXTRA_FLAGS+=" --oracle ${ORACLE}"
 # OUT_JSONL: write to a separate JSONL (don't touch the default one). Use this
 # to keep a previous model's classifications intact while (re)classifying with
 # another model into its own file. With FORCE=1, only THIS file is unlinked.

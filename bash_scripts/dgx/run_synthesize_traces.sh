@@ -42,6 +42,10 @@ EXTRA_ARGS=""
 [[ "${FORCE:-}" == "1" ]] && EXTRA_ARGS+=" --force"
 [[ -n "${OUT_JSONL:-}" ]] && EXTRA_ARGS+=" --out-jsonl ${OUT_JSONL}"
 [[ "${NO_THINKING:-}" == "1" ]] && EXTRA_ARGS+=" --no-thinking"
+# SEEKERS: whitelist de seekers (vírgula). ORACLE: oracle exigido.
+# Só aplica no modo --all (filtra o triple s_<seeker>__o_<oracle>__p_).
+[[ -n "${SEEKERS:-}" ]] && EXTRA_ARGS+=" --seekers ${SEEKERS}"
+[[ -n "${ORACLE:-}" ]]  && EXTRA_ARGS+=" --oracle ${ORACLE}"
 
 # Default: Qwen3-235B no B200-2 (acesso direto na rede DGX). Override via BACKEND ou
 # BASE_URL/MODEL/API_KEY direto.
@@ -96,6 +100,8 @@ echo "Started:  $(date)"
 echo "Out JSONL:    ${OUT_JSONL:-outputs/seeker_traces.jsonl (default — lido pelo eval-choices)}"
 [ "${FORCE:-}" == "1" ]      && echo "Force:        re-sintetiza (unlinka o JSONL alvo)"
 [ "${NO_THINKING:-}" == "1" ] && echo "Thinking:     OFF (enable_thinking=false — sem reasoning no raw_response)"
+[ -n "${SEEKERS:-}" ]        && echo "Seekers:      ${SEEKERS}"
+[ -n "${ORACLE:-}" ]         && echo "Oracle:       ${ORACLE}"
 if [ -n "${RUNS_PATH}" ]; then
     echo "CSV:      ${RUNS_PATH}"
     SYNTHESIS_CMD="python3 scripts/reasoning_traces/synthesize_traces.py --runs '${RUNS_PATH}' ${MODEL_ARGS}${RUN_INDEX_ARGS}${EXTRA_ARGS}"

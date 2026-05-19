@@ -50,12 +50,49 @@ OUTPUTS_BASE = project_root / "outputs"
 # ---------------------------------------------------------------------------
 
 
-def find_runs_csvs(base_dir: Path) -> list[Path]:
-    return sorted(
-        p for p in base_dir.rglob("runs.csv")
-        if (p.parent.name.endswith("_cot") or "_cot_" in p.parent.name)
-        and "no_cot" not in p.parent.name
-    )
+def _slug(name: str) -> str:
+    """Model name → output-dir slug (the triple uses '/' replaced by '-')."""
+    return name.replace("/", "-")
+
+
+def _triple_parts(dir_name: str):
+    """Parse 's_<seeker>__o_<oracle>__p_<pruner>' → (seeker, oracle, pruner).
+
+    None if not triple-shaped. Caller matches segments EXACTLY, so
+    'Nemotron-Cascade-8B' never matches 'Nemotron-Cascade-8B-Thinking'.
+    """
+    if not dir_name.startswith("s_"):
+        return None
+    rest = dir_name[2:]
+    if "__o_" not in rest or "__p_" not in rest:
+        return None
+    seeker, rest2 = rest.split("__o_", 1)
+    oracle, pruner = rest2.split("__p_", 1)
+    return seeker, oracle, pruner
+
+
+def find_runs_csvs(
+    base_dir: Path,
+    seekers: set[str] | None = None,
+    oracle: str | None = None,
+) -> list[Path]:
+    out: list[Path] = []
+    for p in sorted(base_dir.rglob("runs.csv")):
+        if not ((p.parent.name.endswith("_cot") or "_cot_" in p.parent.name)
+                and "no_cot" not in p.parent.name):
+            continue
+        if seekers is not None or oracle is not None:
+            # runs.csv lives at outputs/models/<triple>/<experiment>/runs.csv
+            parts = _triple_parts(p.parent.parent.name)
+            if parts is None:
+                continue
+            s, o, _ = parts
+            if seekers is not None and s not in seekers:
+                continue
+            if oracle is not None and o != oracle:
+                continue
+        out.append(p)
+    return out
 
 
 def seeker_paths_from_csv(
@@ -202,12 +239,26 @@ def main() -> None:
     parser.add_argument("--sample-indices", type=str, default=None,
                         help="Posições 0-based separadas por vírgula dentro da runs.csv após "
                              "--run-index (ex: '0,10,20,...,150'). Determinístico.")
+    parser.add_argument("--seekers", type=str, default=None,
+                        help="Comma-separated seeker model names to keep (e.g. "
+                             "'Qwen3-8B,google/gemma-4-31B-it'). '/' slugified to '-'. "
+                             "Exact segment match on s_<seeker>__o_<oracle>__p_. "
+                             "Só aplica no modo --all. Omitir = todos.")
+    parser.add_argument("--oracle", type=str, default=None,
+                        help="Mantém só triples cujo oracle == isto (ex.: 'Qwen3-8B'). "
+                             "Só aplica no modo --all. Omitir = qualquer.")
     parser.add_argument("--no-thinking", action="store_true",
                         help="Desliga o thinking do modelo de síntese: envia "
                              "chat_template_kwargs.enable_thinking=false (override do "
                              "default-on de servidores como gemma4). Sem reasoning no raw_response.")
     args = parser.parse_args()
     sample_indices = _parse_sample_indices(args.sample_indices)
+
+    seekers = (
+        {_slug(s.strip()) for s in args.seekers.split(",") if s.strip()}
+        if args.seekers else None
+    )
+    oracle = _slug(args.oracle.strip()) if args.oracle else None
 
     extra = {}
     if args.no_thinking:
@@ -255,8 +306,12 @@ def main() -> None:
                           out_jsonl, lock, done_paths, desc=args.runs.parent.name)
 
         else:  # --all
-            runs_csvs = find_runs_csvs(OUTPUTS_BASE)
+            runs_csvs = find_runs_csvs(OUTPUTS_BASE, seekers=seekers, oracle=oracle)
             logger.info("🔎 %d runs.csv CoT encontrados", len(runs_csvs))
+            if seekers is not None:
+                logger.info("🎯 seekers=%s", sorted(seekers))
+            if oracle is not None:
+                logger.info("🎯 oracle=%s", oracle)
             if args.run_index is not None:
                 logger.info("🎯 run_index=%d", args.run_index)
             if sample_indices is not None:
