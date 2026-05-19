@@ -397,8 +397,13 @@ async def classify_conversation_batch(
     # então passamos só o primeiro. (Versões antigas do vLLM toleravam ambos; as novas — ex: Qwen3-235B —
     # retornam BadRequestError "You can only use one kind of guided decoding".)
     extra_body: dict[str, Any] = {"guided_json": BatchClassification.model_json_schema()}
-    if thinking:
-        extra_body["chat_template_kwargs"] = {"thinking": True}
+    # SEMPRE manda a flag explícita: alguns servidores vLLM (ex.: gemma4) sobem
+    # com `enable_thinking: true` como default do chat-template, então NÃO
+    # mandar nada deixa o thinking LIGADO mesmo com --no-thinking, e o reasoning
+    # conflita com o `guided_json` (structured output) → batch inválido.
+    # Chave correta é `enable_thinking` (chat templates Qwen3 + gemma4;
+    # gpt-oss ignora chat_template_kwargs e usa reasoning_effort).
+    extra_body["chat_template_kwargs"] = {"enable_thinking": thinking}
 
     async with semaphore:
         completion = await client.chat.completions.create(
