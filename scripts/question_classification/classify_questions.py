@@ -412,10 +412,19 @@ async def classify_conversation_batch(
 
     msg = completion.choices[0].message
     content = msg.content or ""
-    reasoning = getattr(msg, "reasoning_content", "") or ""
-    raw = content or reasoning or ""
+    # Different vLLM reasoning-parsers use different field names:
+    #   gpt-oss (openai_gptoss), qwen3, ... → `reasoning_content`
+    #   gemma4                              → `reasoning`
+    # Capture both so raw_response is model-agnostic.
+    reasoning_content = getattr(msg, "reasoning_content", "") or ""
+    reasoning = getattr(msg, "reasoning", "") or ""
+    raw = content or reasoning_content or reasoning or ""
     # Full model output, persisted by default (auditing / model comparison).
-    raw_response = {"content": content, "reasoning_content": reasoning}
+    raw_response = {
+        "content": content,
+        "reasoning_content": reasoning_content,
+        "reasoning": reasoning,
+    }
     payload = _extract_json_payload(raw)
     try:
         batch = BatchClassification.model_validate_json(payload)
