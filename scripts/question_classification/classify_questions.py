@@ -386,8 +386,12 @@ async def classify_conversation_batch(
     domain: str,
     thinking: bool,
     semaphore: asyncio.Semaphore,
-) -> list[QuestionClassification]:
-    """Single LLM request: classify every turn in the conversation at once."""
+) -> tuple[list[QuestionClassification], dict[str, str]]:
+    """Single LLM request: classify every turn in the conversation at once.
+
+    Returns (classifications, raw_response) where raw_response is the model's
+    full output (content + reasoning_content), saved by default for auditing.
+    """
     # vLLM aceita só UM mecanismo de structured output por vez:
     # `guided_json` (extra_body) é mais estrito que `response_format={"type":"json_object"}`,
     # então passamos só o primeiro. (Versões antigas do vLLM toleravam ambos; as novas — ex: Qwen3-235B —
@@ -407,18 +411,26 @@ async def classify_conversation_batch(
         )
 
     msg = completion.choices[0].message
-    raw = msg.content or getattr(msg, "reasoning_content", "") or ""
+    content = msg.content or ""
+    reasoning = getattr(msg, "reasoning_content", "") or ""
+    raw = content or reasoning or ""
+    # Full model output, persisted by default (auditing / model comparison).
+    raw_response = {"content": content, "reasoning_content": reasoning}
     payload = _extract_json_payload(raw)
     try:
         batch = BatchClassification.model_validate_json(payload)
     except Exception as e:  # noqa: BLE001
-        raise RuntimeError(f"{type(e).__name__}: {e} | raw={raw[:400]!r}") from e
+        err = RuntimeError(f"{type(e).__name__}: {e} | raw={raw[:400]!r}")
+        err.raw_response = raw_response  # type: ignore[attr-defined]
+        raise err from e
 
     got, want = len(batch.classifications), len(turns)
     if got != want:
-        raise RuntimeError(f"model returned {got} classifications, expected {want}")
+        err = RuntimeError(f"model returned {got} classifications, expected {want}")
+        err.raw_response = raw_response  # type: ignore[attr-defined]
+        raise err
 
-    return batch.classifications
+    return batch.classifications, raw_response
 
 
 async def classify_conversation(
@@ -431,8 +443,9 @@ async def classify_conversation(
 ) -> dict[str, Any]:
     turns = extract_turns(turns_path)
 
+    raw_response: dict[str, str] = {"content": "", "reasoning_content": ""}
     try:
-        classifications = await classify_conversation_batch(
+        classifications, raw_response = await classify_conversation_batch(
             client, model, turns, stratum.domain, thinking, semaphore
         )
         turn_payloads = []
@@ -449,6 +462,7 @@ async def classify_conversation(
                 )
             turn_payloads.append(payload)
     except Exception as e:  # noqa: BLE001 — bubble up as per-conversation error
+        raw_response = getattr(e, "raw_response", raw_response)
         turn_payloads = [
             {
                 "turn": t.turn,
@@ -470,6 +484,7 @@ async def classify_conversation(
         "num_turns": len(turns),
         "turns": turn_payloads,
         "analysis_model": model,
+        "raw_response": raw_response,
     }
 
 
