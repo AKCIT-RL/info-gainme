@@ -177,8 +177,9 @@ class LLMAdapter:
         max_tokens: Optional[int] = None,
         response_format: Optional[dict[str, Any]] = None,
         bail_on_context_length: bool = False,
+        with_raw: bool = False,
         # extra: Optional[dict[str, Any]] = None
-    ) -> str:
+    ) -> str | tuple[str, str]:
         """Call the provider to generate the next assistant message.
 
         Args:
@@ -346,7 +347,11 @@ class LLMAdapter:
         if self._save_reasoning and raw_content:
             # Reasoning history: always raw (used for export/analysis only)
             self._reasoning_history.append({"role": "assistant", "content": raw_content})
-        
+
+        # with_raw: caller also wants the uncleaned output (incl. <think>…</think>
+        # reasoning) for auditing — thread-safe (returned, not stored on self).
+        if with_raw:
+            return final_content, raw_content
         return final_content
 
 

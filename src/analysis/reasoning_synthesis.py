@@ -94,21 +94,24 @@ def synthesize_reasoning_trace(
         {"role": "user", "content": user_content}
     ]
     
-    # Generate synthesis using stateless call.
-    # `response` (full model output) is saved by default as `raw_response`
-    # for auditing / model comparison — on success AND on failure.
-    response = ""
+    # Generate synthesis using stateless call. `raw_content` (full model output,
+    # incl. <think>…</think> reasoning) is saved by default as `raw_response`
+    # for auditing / model comparison — on success AND on failure. The JSON is
+    # parsed from the CLEANED content so reasoning braces don't break parsing.
+    final_content = ""
+    raw_content = ""
     try:
-        response = llm_adapter.generate(
+        final_content, raw_content = llm_adapter.generate(
             messages=messages,
             stateless=True,
-            add_to_history=False
+            add_to_history=False,
+            with_raw=True,
         )
 
-        # Parse JSON response
-        parsed = parse_first_json_object(response)
+        # Parse JSON from the cleaned content (not raw — reasoning may contain {})
+        parsed = parse_first_json_object(final_content)
         if not parsed:
-            raise ValueError(f"Invalid JSON response: {response}")
+            raise ValueError(f"Invalid JSON response: {final_content}")
 
         # Validate required fields
         required_fields = ["summary", "questions_considered", "decision_rationale"]
@@ -116,7 +119,7 @@ def synthesize_reasoning_trace(
             if field not in parsed:
                 parsed[field] = f"Missing field: {field}"
 
-        parsed["raw_response"] = response
+        parsed["raw_response"] = raw_content
         return parsed
 
     except Exception as e:
@@ -125,7 +128,7 @@ def synthesize_reasoning_trace(
             "summary": "Synthesis failed",
             "questions_considered": [],
             "decision_rationale": f"Error: {str(e)}",
-            "raw_response": response
+            "raw_response": raw_content or final_content,
         }
 
 
