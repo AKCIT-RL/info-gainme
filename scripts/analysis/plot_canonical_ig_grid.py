@@ -186,12 +186,29 @@ def main() -> int:
 
     collected = _collect(args.outputs_root, args.oracle, args.domain, args.force)
 
-    ncol = len(CANONICAL)
+    def _has(panel) -> bool:
+        if args.variant == "cot":
+            return any(c for c, _ in panel)
+        if args.variant == "no_cot":
+            return any(not c for c, _ in panel)
+        return bool(panel)
+
+    # Dropa colunas (seekers) sem nenhum dado em FO/IO/PO p/ este --variant.
+    cols = [(slug, disp) for slug, disp in CANONICAL
+            if any(_has(collected[slug][o]) for o in OBS_ROWS)]
+    if not cols:
+        print("❌ Nenhum seeker com dados para este --variant; nada a plotar.")
+        return 1
+    dropped = [d for s, d in CANONICAL if (s, d) not in cols]
+    if dropped:
+        print(f"… colunas vazias omitidas ({len(dropped)}): {dropped}")
+
+    ncol = len(cols)
     nrow = len(OBS_ROWS)
     fig, axes = plt.subplots(nrow, ncol, figsize=(3.0 * ncol, 3.7 * nrow),
                              squeeze=False)
     for r, obs in enumerate(OBS_ROWS):
-        for col, (slug, disp) in enumerate(CANONICAL):
+        for col, (slug, disp) in enumerate(cols):
             _plot_panel(axes[r][col], collected[slug][obs], disp,
                         ylabel=(col == 0), variant=args.variant)
 
