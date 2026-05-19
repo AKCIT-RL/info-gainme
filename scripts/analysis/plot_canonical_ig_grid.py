@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Grid 2×11 de Information Gain por turno dos 11 seekers canonicals.
+"""Grid 3×11 de Information Gain por turno dos 11 seekers canonicals.
 
-Linhas: FO (cima) / PO (baixo). Colunas: 1 por seeker canonical, na ordem
-fixada abaixo. Dentro de cada painel: 1 linha por variante (CoT / No-CoT)
-com banda de erro padrão (SE = sqrt(var)/sqrt(n)).
+Linhas: FO / IO / PO (cima→baixo). Colunas: 1 por seeker canonical, na
+ordem fixada abaixo. Dentro de cada painel: 1 linha por variante (CoT /
+No-CoT) com banda de erro padrão (SE = sqrt(var)/sqrt(n)).
 
 Só considera o triple s_<seeker>__o_<oracle>__p_<pruner> com oracle ==
 --oracle (default Qwen3-8B) e experimentos do domínio --domain (default geo).
@@ -58,18 +58,29 @@ COLOR_COT = "#1f77b4"
 COLOR_NO_COT = "#aec7e8"
 
 
+OBS_ROWS = ["FO", "IO", "PO"]
+OBS_LABEL = {
+    "FO": "Fully Observable\n(FO)",
+    "IO": "Initially Observable\n(IO)",
+    "PO": "Partially Observable\n(PO)",
+}
+
+
 def _classify(exp_name: str) -> tuple[str, bool] | None:
     """(obs, is_cot) só pro config CANÔNICO.
 
     Casa apenas o sufixo exato — exclui variantes não-canônicas
-    (_with_prior, _with_kickoff, _ont, …) e o modo _io_, que não devem
-    aparecer nesse gráfico (senão viram linhas duplicadas no painel).
+    (_with_prior, _with_kickoff, _ont, …). Observabilidade: FO / IO / PO.
     """
     e = exp_name.lower()
     if e.endswith("_fo_no_cot"):
         return "FO", False
     if e.endswith("_fo_cot"):
         return "FO", True
+    if e.endswith("_io_no_cot"):
+        return "IO", False
+    if e.endswith("_io_cot"):
+        return "IO", True
     if e.endswith("_po_no_cot"):
         return "PO", False
     if e.endswith("_po_cot"):
@@ -97,10 +108,10 @@ def _ensure_aggregated(exp_dir: Path, force: bool) -> Path | None:
 
 
 def _collect(outputs_root: Path, oracle: str, domain: str, force: bool):
-    """seeker_slug -> 'FO'/'PO' -> list[(is_cot, data)]."""
+    """seeker_slug -> 'FO'/'IO'/'PO' -> list[(is_cot, data)]."""
     models_root = outputs_root / "models"
     out: dict[str, dict[str, list[tuple[bool, list[dict[str, Any]]]]]] = {
-        slug: {"FO": [], "PO": []} for slug, _ in CANONICAL
+        slug: {o: [] for o in OBS_ROWS} for slug, _ in CANONICAL
     }
     for slug, _ in CANONICAL:
         triple = models_root / f"s_{slug}__o_{oracle}__p_{oracle}"
@@ -168,15 +179,20 @@ def main() -> int:
     collected = _collect(args.outputs_root, args.oracle, args.domain, args.force)
 
     ncol = len(CANONICAL)
-    fig, axes = plt.subplots(2, ncol, figsize=(3.0 * ncol, 8.0), squeeze=False)
-    for col, (slug, disp) in enumerate(CANONICAL):
-        _plot_panel(axes[0][col], collected[slug]["FO"], disp, ylabel=(col == 0))
-        _plot_panel(axes[1][col], collected[slug]["PO"], disp, ylabel=(col == 0))
+    nrow = len(OBS_ROWS)
+    fig, axes = plt.subplots(nrow, ncol, figsize=(3.0 * ncol, 3.7 * nrow),
+                             squeeze=False)
+    for r, obs in enumerate(OBS_ROWS):
+        for col, (slug, disp) in enumerate(CANONICAL):
+            _plot_panel(axes[r][col], collected[slug][obs], disp,
+                        ylabel=(col == 0))
 
-    fig.text(0.008, 0.74, "Fully Observable\n(FO)", rotation=90, fontsize=14,
-             fontweight="bold", ha="center", va="center")
-    fig.text(0.008, 0.30, "Partially Observable\n(PO)", rotation=90, fontsize=14,
-             fontweight="bold", ha="center", va="center")
+    # rótulos laterais centrados em cada linha de subplots
+    for r, obs in enumerate(OBS_ROWS):
+        y = 1.0 - (r + 0.5) / nrow
+        y = 0.06 + y * (0.99 - 0.06)  # casa com o rect do tight_layout
+        fig.text(0.008, y, OBS_LABEL[obs], rotation=90, fontsize=14,
+                 fontweight="bold", ha="center", va="center")
 
     handles = [
         plt.Line2D([0], [0], color=COLOR_COT, lw=2, marker="o", markersize=5),
