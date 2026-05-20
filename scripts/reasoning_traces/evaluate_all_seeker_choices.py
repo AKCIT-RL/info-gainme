@@ -22,7 +22,12 @@ import yaml
 project_root = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(project_root))
 
-from src.analysis.question_evaluator import evaluate_seeker_choices, _get_jsonl_index, NoTraceError
+from src.analysis.question_evaluator import (
+    evaluate_seeker_choices,
+    _get_jsonl_index,
+    NoTraceError,
+    set_traces_jsonl,
+)
 from src.agents.llm_config import LLMConfig
 from src.utils import ClaryLogger
 
@@ -667,7 +672,15 @@ def main():
         action="store_true",
         help="Show what would be processed without actually processing"
     )
-    
+    parser.add_argument(
+        "--traces-jsonl",
+        type=Path,
+        default=None,
+        help=("Aggregate seeker_traces JSONL to read traces from. "
+              "Default: <outputs-base-dir>/seeker_traces.jsonl. Use this to "
+              "point at a separate aggregate (ex.: seeker_traces_gemma.jsonl).")
+    )
+
     args = parser.parse_args()
     
     ClaryLogger.configure()
@@ -703,9 +716,16 @@ def main():
     # multi-GB; making 32 workers race the load via the GIL stalls everything
     # for minutes (the C-level splitlines/JSON parse never yields). Loading
     # once here populates the module-level cache for all workers to reuse.
-    seeker_traces_jsonl = args.outputs_base_dir / "seeker_traces.jsonl"
+    # --traces-jsonl override (caso queira um agregado alternativo, ex.:
+    # outputs/seeker_traces_gemma.jsonl) é propagado pro evaluator via
+    # set_traces_jsonl, e usado aqui no pre-load.
+    seeker_traces_jsonl = (
+        args.traces_jsonl.resolve() if args.traces_jsonl
+        else args.outputs_base_dir / "seeker_traces.jsonl"
+    )
+    set_traces_jsonl(seeker_traces_jsonl)
     if seeker_traces_jsonl.exists():
-        logger.info("📚 Pre-loading seeker_traces.jsonl index (%s)…", seeker_traces_jsonl)
+        logger.info("📚 Pre-loading seeker_traces index (%s)…", seeker_traces_jsonl)
         _get_jsonl_index(seeker_traces_jsonl)
 
     # --sample-indices: reuse the EXACT selection from question_classification

@@ -141,14 +141,31 @@ def _get_jsonl_index(unified_jsonl: Path) -> Dict[str, List[Dict[str, Any]]]:
         return index
 
 
+# Allow callers (ex.: evaluate_all_seeker_choices.py via --traces-jsonl) to
+# redirect _load_seeker_history pra um agregado alternativo
+# (ex.: seeker_traces_gemma.jsonl) sem mexer na assinatura do evaluator.
+_TRACES_JSONL_OVERRIDE: Optional[Path] = None
+
+
+def set_traces_jsonl(path: Optional[Path]) -> None:
+    """Set/clear the override path for the seeker_traces aggregate JSONL."""
+    global _TRACES_JSONL_OVERRIDE
+    _TRACES_JSONL_OVERRIDE = path
+
+
 def _load_seeker_history(conversation_dir: Path) -> List[Dict[str, Any]]:
     """Load synthesized reasoning turns for a conversation from the unified
-    ``outputs/seeker_traces.jsonl`` index, matched by seeker.json path.
+    ``outputs/seeker_traces.jsonl`` index (or the override path set via
+    :func:`set_traces_jsonl`), matched by seeker.json path.
 
     Returns an empty list if the conversation is not in the index.
     """
     project_root = Path(__file__).parent.parent.parent
-    unified_jsonl = project_root / "outputs" / "seeker_traces.jsonl"
+    unified_jsonl = (
+        _TRACES_JSONL_OVERRIDE
+        if _TRACES_JSONL_OVERRIDE is not None
+        else project_root / "outputs" / "seeker_traces.jsonl"
+    )
     if not unified_jsonl.exists():
         logger.warning("Unified seeker_traces.jsonl not found at %s", unified_jsonl)
         return []

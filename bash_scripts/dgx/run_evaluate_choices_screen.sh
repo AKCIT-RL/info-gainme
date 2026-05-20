@@ -49,7 +49,7 @@ SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 if [ -z "${STY:-}" ] && [ "${FOREGROUND:-0}" != "1" ]; then
     mkdir -p "${PROJECT_DIR}/logs"
     echo "Iniciando screen 'eval-choices' (run=${RUN_TS})..."
-    screen -dmS eval-choices bash -c "RUN_TS='${RUN_TS}' BACKEND='${BACKEND:-}' MAX_WORKERS='${MAX_WORKERS:-}' FORCE='${FORCE:-}' DRY_RUN='${DRY_RUN:-}' TEMPERATURE='${TEMPERATURE:-}' ONLY_RUN_INDEX='${ONLY_RUN_INDEX:-}' SAMPLE_INDICES='${SAMPLE_INDICES:-}' bash '${BASH_SOURCE[0]}' ${1:-}; exec bash"
+    screen -dmS eval-choices bash -c "RUN_TS='${RUN_TS}' BACKEND='${BACKEND:-}' MAX_WORKERS='${MAX_WORKERS:-}' FORCE='${FORCE:-}' DRY_RUN='${DRY_RUN:-}' TEMPERATURE='${TEMPERATURE:-}' ONLY_RUN_INDEX='${ONLY_RUN_INDEX:-}' SAMPLE_INDICES='${SAMPLE_INDICES:-}' TRACES_JSONL='${TRACES_JSONL:-}' bash '${BASH_SOURCE[0]}' ${1:-}; exec bash"
     echo "  screen -r eval-choices"
     echo "  tail -f ${PROJECT_DIR}/logs/eval-choices-latest.log"
     exit 0
@@ -81,6 +81,9 @@ EXTRA_FLAGS=""
 [[ -n "${TEMPERATURE:-}" ]]        && EXTRA_FLAGS+=" --temperature ${TEMPERATURE}"
 [[ -n "${ONLY_RUN_INDEX:-}" ]]     && EXTRA_FLAGS+=" --only-run-index ${ONLY_RUN_INDEX}"
 [[ -n "${SAMPLE_INDICES:-}" ]]     && EXTRA_FLAGS+=" --sample-indices ${SAMPLE_INDICES//_/,}"
+# TRACES_JSONL: agregado alternativo (ex.: outputs/seeker_traces_gemma.jsonl).
+# Default = outputs/seeker_traces.jsonl. Caminho relativo ao project_dir.
+[[ -n "${TRACES_JSONL:-}" ]]       && EXTRA_FLAGS+=" --traces-jsonl ${TRACES_JSONL}"
 
 mkdir -p "${PROJECT_DIR}/logs"
 
