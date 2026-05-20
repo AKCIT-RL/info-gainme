@@ -680,6 +680,15 @@ def main():
               "Default: <outputs-base-dir>/seeker_traces.jsonl. Use this to "
               "point at a separate aggregate (ex.: seeker_traces_gemma.jsonl).")
     )
+    parser.add_argument(
+        "--unified-jsonl",
+        type=Path,
+        default=None,
+        help=("Output unified JSONL pra gravar/ler as avaliações. "
+              "Default: <outputs-base-dir>/question_evaluations.jsonl. Use pra "
+              "manter um eval separado (ex.: question_evaluations_gemma.jsonl) "
+              "sem misturar com o agregado legado.")
+    )
 
     args = parser.parse_args()
     
@@ -706,7 +715,10 @@ def main():
     # match the absolute keys in seeker_traces.jsonl → silent empty results.
     args.outputs_base_dir = args.outputs_base_dir.resolve()
 
-    unified_jsonl = unified_jsonl_path(args.outputs_base_dir)
+    unified_jsonl = (
+        args.unified_jsonl.resolve() if args.unified_jsonl
+        else unified_jsonl_path(args.outputs_base_dir)
+    )
     done_keys = _load_done_index(unified_jsonl)
     logger.info("📚 Unified JSONL: %s (%d already evaluated)", unified_jsonl, len(done_keys))
     if not args.no_migrate:
