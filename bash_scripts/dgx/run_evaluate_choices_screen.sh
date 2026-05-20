@@ -28,9 +28,8 @@
 #   DRY_RUN       "1" só lista o que seria processado  (default: vazio)
 #   TEMPERATURE   override de temperatura              (default: vazio = API decide)
 #   ONLY_RUN_INDEX  filtra run_index (ex.: 1)          (default: vazio = todos)
-#   SAMPLE_INDICES  posições por stratum, separadas por _ (ex.:
-#                   0_10_20_..._150). Restringe ao MESMO sample do
-#                   question_classification / synthesize_traces.
+#   (SAMPLE_INDICES foi removido: a seleção é sempre 1-pra-1 com o
+#    --traces-jsonl, sem precisar reespecificar posições.)
 #                   (default: vazio = todas as conversas)
 #
 # Argumento posicional opcional:
@@ -49,7 +48,7 @@ SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 if [ -z "${STY:-}" ] && [ "${FOREGROUND:-0}" != "1" ]; then
     mkdir -p "${PROJECT_DIR}/logs"
     echo "Iniciando screen 'eval-choices' (run=${RUN_TS})..."
-    screen -dmS eval-choices bash -c "RUN_TS='${RUN_TS}' BACKEND='${BACKEND:-}' MAX_WORKERS='${MAX_WORKERS:-}' FORCE='${FORCE:-}' DRY_RUN='${DRY_RUN:-}' TEMPERATURE='${TEMPERATURE:-}' ONLY_RUN_INDEX='${ONLY_RUN_INDEX:-}' SAMPLE_INDICES='${SAMPLE_INDICES:-}' TRACES_JSONL='${TRACES_JSONL:-}' UNIFIED_JSONL='${UNIFIED_JSONL:-}' NO_MIGRATE='${NO_MIGRATE:-}' bash '${BASH_SOURCE[0]}' ${1:-}; exec bash"
+    screen -dmS eval-choices bash -c "RUN_TS='${RUN_TS}' BACKEND='${BACKEND:-}' MAX_WORKERS='${MAX_WORKERS:-}' FORCE='${FORCE:-}' DRY_RUN='${DRY_RUN:-}' TEMPERATURE='${TEMPERATURE:-}' ONLY_RUN_INDEX='${ONLY_RUN_INDEX:-}' TRACES_JSONL='${TRACES_JSONL:-}' UNIFIED_JSONL='${UNIFIED_JSONL:-}' NO_MIGRATE='${NO_MIGRATE:-}' bash '${BASH_SOURCE[0]}' ${1:-}; exec bash"
     echo "  screen -r eval-choices"
     echo "  tail -f ${PROJECT_DIR}/logs/eval-choices-latest.log"
     exit 0
@@ -80,7 +79,8 @@ EXTRA_FLAGS=""
 [[ "${DRY_RUN}" == "1" ]]          && EXTRA_FLAGS+=" --dry-run"
 [[ -n "${TEMPERATURE:-}" ]]        && EXTRA_FLAGS+=" --temperature ${TEMPERATURE}"
 [[ -n "${ONLY_RUN_INDEX:-}" ]]     && EXTRA_FLAGS+=" --only-run-index ${ONLY_RUN_INDEX}"
-[[ -n "${SAMPLE_INDICES:-}" ]]     && EXTRA_FLAGS+=" --sample-indices ${SAMPLE_INDICES//_/,}"
+# SAMPLE_INDICES removido: a seleção de conversas é SEMPRE a do --traces-jsonl
+# (1-pra-1 com o synthesize_traces, sem mismatch de ordenação).
 # TRACES_JSONL: agregado alternativo (ex.: outputs/seeker_traces_gemma.jsonl).
 # Default = outputs/seeker_traces.jsonl. Caminho relativo ao project_dir.
 [[ -n "${TRACES_JSONL:-}" ]]       && EXTRA_FLAGS+=" --traces-jsonl ${TRACES_JSONL}"
@@ -112,7 +112,7 @@ echo "Backend:       ${BACKEND}"
 echo "Endpoint:      ${BASE_URL}"
 echo "Oracle/Pruner: ${MODEL}"
 echo "Max workers:   ${MAX_WORKERS}"
-echo "Sample idx:    ${SAMPLE_INDICES:-(all conversations)}"
+echo "Traces src:    ${TRACES_JSONL:-outputs/seeker_traces.jsonl} (define exatamente quais conversas avaliar)"
 echo "Flags:         ${EXTRA_FLAGS:-(default: resume on)}"
 echo "Log:           ${LOG_FILE}"
 echo "Started:       $(date)"

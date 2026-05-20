@@ -652,16 +652,6 @@ def main():
              "run_index (e.g. 1 to keep just run01).",
     )
     parser.add_argument(
-        "--sample-indices",
-        type=str,
-        default=None,
-        help="Comma-separated positional indices (e.g. 0,10,20,...,150). When set, "
-             "restricts evaluation to exactly the same conversations that "
-             "question_classification / synthesize_traces pick: reuses "
-             "classify_questions.discover_conversations + stratified_sample so the "
-             "sample is byte-identical across analysis pipelines. Only CoT strata.",
-    )
-    parser.add_argument(
         "--max-workers",
         type=int,
         default=1,
@@ -740,38 +730,21 @@ def main():
         logger.info("📚 Pre-loading seeker_traces index (%s)…", seeker_traces_jsonl)
         _get_jsonl_index(seeker_traces_jsonl)
 
-    # --sample-indices: reuse the EXACT selection from question_classification
-    # (discover_conversations + stratified_sample) so the evaluated set is
-    # byte-identical to the classify / synthesize_traces sample.
-    sample_filter: Optional[Set[Path]] = None
-    if args.sample_indices:
-        import random
-        from scripts.question_classification.classify_questions import (
-            discover_conversations,
-            stratified_sample,
-        )
-        try:
-            indices = [int(x) for x in args.sample_indices.split(",") if x.strip() != ""]
-        except ValueError:
-            logger.error("Invalid --sample-indices: %r", args.sample_indices)
-            return 1
-        buckets = discover_conversations(
-            args.outputs_base_dir, run_index=args.only_run_index
-        )
-        # eval-choices is CoT-only (needs reasoning traces)
-        buckets = {st: ps for st, ps in buckets.items() if st.cot}
-        picks = stratified_sample(
-            buckets, per_stratum=None, rng=random.Random(0),
-            sample_indices=indices,
-        )
-        sample_filter = {turns.parent.resolve() for _st, turns in picks}
-        logger.info(
-            "🎯 --sample-indices: %d positions × %d CoT strata → %d conversations",
-            len(indices), len(buckets), len(sample_filter),
-        )
-        if not sample_filter:
-            logger.error("Sample filter is empty — nothing to evaluate.")
-            return 1
+    # Comportamento padrão definitivo: as conversas a avaliar são EXATAMENTE
+    # as presentes no agregado seeker_traces.jsonl (`--traces-jsonl`). Garante
+    # match 1-pra-1 com o que o synthesize_traces produziu — sem mismatch de
+    # ordering (runs.csv-row-order × dir-alfabético) que causava 90%+ Skipped.
+    trace_index = _get_jsonl_index(seeker_traces_jsonl) if seeker_traces_jsonl.exists() else {}
+    if not trace_index:
+        logger.error("seeker_traces jsonl vazio ou ausente: %s", seeker_traces_jsonl)
+        return 1
+    sample_filter: Optional[Set[Path]] = {
+        Path(seeker_path).parent.resolve() for seeker_path in trace_index
+    }
+    logger.info(
+        "🎯 traces como fonte: %d conversas no %s",
+        len(sample_filter), seeker_traces_jsonl.name,
+    )
 
     if args.all:
         runs_csvs = find_cot_runs_csvs(args.outputs_base_dir)
