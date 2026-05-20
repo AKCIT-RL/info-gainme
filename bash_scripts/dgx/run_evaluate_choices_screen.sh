@@ -49,7 +49,7 @@ SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 if [ -z "${STY:-}" ] && [ "${FOREGROUND:-0}" != "1" ]; then
     mkdir -p "${PROJECT_DIR}/logs"
     echo "Iniciando screen 'eval-choices' (run=${RUN_TS})..."
-    screen -dmS eval-choices bash -c "RUN_TS='${RUN_TS}' BACKEND='${BACKEND:-}' MAX_WORKERS='${MAX_WORKERS:-}' FORCE='${FORCE:-}' DRY_RUN='${DRY_RUN:-}' TEMPERATURE='${TEMPERATURE:-}' ONLY_RUN_INDEX='${ONLY_RUN_INDEX:-}' SAMPLE_INDICES='${SAMPLE_INDICES:-}' TRACES_JSONL='${TRACES_JSONL:-}' UNIFIED_JSONL='${UNIFIED_JSONL:-}' bash '${BASH_SOURCE[0]}' ${1:-}; exec bash"
+    screen -dmS eval-choices bash -c "RUN_TS='${RUN_TS}' BACKEND='${BACKEND:-}' MAX_WORKERS='${MAX_WORKERS:-}' FORCE='${FORCE:-}' DRY_RUN='${DRY_RUN:-}' TEMPERATURE='${TEMPERATURE:-}' ONLY_RUN_INDEX='${ONLY_RUN_INDEX:-}' SAMPLE_INDICES='${SAMPLE_INDICES:-}' TRACES_JSONL='${TRACES_JSONL:-}' UNIFIED_JSONL='${UNIFIED_JSONL:-}' NO_MIGRATE='${NO_MIGRATE:-}' bash '${BASH_SOURCE[0]}' ${1:-}; exec bash"
     echo "  screen -r eval-choices"
     echo "  tail -f ${PROJECT_DIR}/logs/eval-choices-latest.log"
     exit 0
@@ -88,6 +88,10 @@ EXTRA_FLAGS=""
 # Pra rodar um eval dedicado sem mexer no agregado legado, aponte pra um novo
 # (ex.: outputs/question_evaluations_gemma.jsonl).
 [[ -n "${UNIFIED_JSONL:-}" ]]      && EXTRA_FLAGS+=" --unified-jsonl ${UNIFIED_JSONL}"
+# NO_MIGRATE=1: NÃO migra os question_evaluation.json legados por-conversa pro
+# unified. Use com UNIFIED_JSONL novo se quiser arquivo realmente limpo (senão
+# a migração despeja 4k+ avaliações antigas dentro dele).
+[[ "${NO_MIGRATE:-}" == "1" ]]     && EXTRA_FLAGS+=" --no-migrate"
 
 mkdir -p "${PROJECT_DIR}/logs"
 
