@@ -43,7 +43,6 @@ from plot_aggregated_ig import load_aggregated_data        # noqa: E402
 CANONICAL: list[tuple[str, str]] = [
     ("Llama-3.1-8B-Instruct", "Llama-3.1-8B-Instruct"),
     ("Nemotron-Cascade-8B", "Nemotron-Cascade-8B"),
-    ("Qwen3-0.6B", "Qwen3-0.6B"),
     ("Qwen3-30B-A3B-Instruct-2507", "Qwen3-30B-Instruct"),
     ("Qwen3-30B-A3B-Thinking-2507", "Qwen3-30B-Thinking"),
     ("Qwen3-4B-Instruct-2507", "Qwen3-4B-Instruct"),
