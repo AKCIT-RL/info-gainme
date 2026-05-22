@@ -18,8 +18,8 @@ for j in "${JOBS[@]}"; do
     FORCE_GPUS='$GPUS' \
     VLLM_ENGINE_READY_TIMEOUT_S=3600 \
     CONFIGS_TARGET='$CFG' \
-    srun --partition=b200n1 --gres=gpu:2 --mem=120G --time=2-00:00:00 \
-         --output='logs/${SCR}.log' --job-name='$SCR' \
+    srun --partition=b200n1 --gres=gpu:2 --mem=60G --time=2-00:00:00 \
+         --output='/raid/user_danielpedrozo/projects/info-gainme_dev/logs/%x-%j.log' --job-name=info-gainme-full \
       bash bash_scripts/dgx/run_full_benchmark.sh; exec bash"
 done
 
