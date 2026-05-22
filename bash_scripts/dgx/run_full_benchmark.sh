@@ -97,8 +97,17 @@ SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 # ============================================
 # SLURM provides CUDA_VISIBLE_DEVICES with actual GPU indices on the node
 # e.g., CUDA_VISIBLE_DEVICES=0,1 or CUDA_VISIBLE_DEVICES=2,5
+#
+# FORCE_GPUS: self-pin manual. Se setado, IGNORA o que o SLURM alocou e usa
+# exatamente essas GPUs (ex.: FORCE_GPUS=0,1). Necessário quando a
+# contabilidade de GPU do nó está furada e jobs colidem na mesma GPU —
+# aí o run_many_jobs distribui os pares (0,1 / 2,3 / 4,5 / 6,7) na mão.
+if [ -n "${FORCE_GPUS:-}" ]; then
+    echo "FORCE_GPUS=${FORCE_GPUS} → sobrescrevendo CUDA_VISIBLE_DEVICES (SLURM deu: ${CUDA_VISIBLE_DEVICES:-vazio})"
+    export CUDA_VISIBLE_DEVICES="${FORCE_GPUS}"
+fi
 if [ -z "${CUDA_VISIBLE_DEVICES}" ]; then
-    echo "ERROR: CUDA_VISIBLE_DEVICES not set by SLURM"
+    echo "ERROR: CUDA_VISIBLE_DEVICES não setado (nem pelo SLURM nem por FORCE_GPUS)"
     exit 1
 fi
 
