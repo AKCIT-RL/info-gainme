@@ -308,6 +308,25 @@ else
     echo "ERROR: '${CONFIGS_TARGET}' not found"; kill $PID1 $PID2 2>/dev/null; exit 1
 fi
 
+# EXCLUDE_CONFIGS: substrings (separadas por vírgula) — qualquer config cujo
+# caminho contenha um deles é PULADO. Ex.: EXCLUDE_CONFIGS=with_prior
+if [ -n "${EXCLUDE_CONFIGS:-}" ]; then
+    IFS=',' read -ra _excl <<< "${EXCLUDE_CONFIGS}"
+    _kept=()
+    for _c in "${CONFIGS[@]}"; do
+        _skip=0
+        for _pat in "${_excl[@]}"; do
+            [[ -n "${_pat}" && "${_c}" == *"${_pat}"* ]] && _skip=1 && break
+        done
+        if [ "${_skip}" -eq 1 ]; then
+            echo "  ⏭️  pulando (EXCLUDE_CONFIGS): ${_c#${PROJECT_DIR}/}"
+        else
+            _kept+=("${_c}")
+        fi
+    done
+    CONFIGS=("${_kept[@]}")
+fi
+
 echo "=========================================="
 echo "Running ${#CONFIGS[@]} benchmark config(s)"
 echo "=========================================="
