@@ -224,7 +224,7 @@ start_vllm_server() {
       --env HF_HOME=${HF_HOME} \
       --env CUDA_VISIBLE_DEVICES=${gpu} \
       "${SINGULARITY_IMAGE}" \
-      bash -c "${cmd}" >> "${log}" 2>&1 &
+      bash -c "pip install --user -q -U regex >/dev/null 2>&1 || true; ${cmd}" >> "${log}" 2>&1 &
     echo "$!"
 }
 clear
