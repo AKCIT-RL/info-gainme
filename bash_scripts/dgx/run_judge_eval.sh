@@ -71,6 +71,12 @@ FORCE="${FORCE:-}"                                      # set to 1 to overwrite 
 RUN_INDEX="${RUN_INDEX-1}"
 SAMPLE_INDICES="${SAMPLE_INDICES-10,20,30,40,50,60,70,80,90,100,110,120,130,140,150}"
 SAMPLE_INDICES="${SAMPLE_INDICES//_/,}"
+# SEEKERS / ORACLE aceitam '+' no lugar de vírgula (defesa contra o parser do
+# SLURM --export, que usa ',' como separator entre vars). Usar '_' aqui NÃO
+# funciona porque nomes legítimos têm '_' (ex.: paprika_Meta-Llama-3.1-8B-Instruct).
+# Ex.: SEEKERS=Qwen3-8B+google/gemma-4-31B-it → "Qwen3-8B,google/gemma-4-31B-it"
+SEEKERS="${SEEKERS//+/,}"
+ORACLE="${ORACLE//+/,}"
 
 PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
 SHARED_GROUP="sd22"
