@@ -85,6 +85,21 @@ def _conversations_from_runs_csv(
     return out
 
 
+def _slug(name: str) -> str:
+    """Model name → output-dir slug (the triple uses '/' replaced by '-')."""
+    return name.replace("/", "-")
+
+
+def _triple_parts(dir_name: str) -> Optional[tuple[str, str, str]]:
+    """Parse 's_<seeker>__o_<oracle>__p_<pruner>' → (seeker, oracle, pruner)."""
+    if not dir_name.startswith("s_") or "__o_" not in dir_name or "__p_" not in dir_name:
+        return None
+    rest = dir_name[2:]
+    s, _, rest = rest.partition("__o_")
+    o, _, p = rest.partition("__p_")
+    return (s, o, p) if s and o and p else None
+
+
 def _resolve_conversations(args: argparse.Namespace) -> list[tuple[str, list[Path]]]:
     if args.conversation:
         return [(args.conversation.name, [args.conversation])]
@@ -92,8 +107,22 @@ def _resolve_conversations(args: argparse.Namespace) -> list[tuple[str, list[Pat
     if args.runs:
         return [(args.runs.parent.name,
                  _conversations_from_runs_csv(args.runs, args.run_index, sample))]
+    seekers = (
+        {_slug(s.strip()) for s in args.seekers.split(",") if s.strip()}
+        if args.seekers else None
+    )
+    oracle = _slug(args.oracle.strip()) if args.oracle else None
     groups: list[tuple[str, list[Path]]] = []
     for runs_csv in sorted(OUTPUTS_BASE.rglob("runs.csv")):
+        if seekers is not None or oracle is not None:
+            parts = _triple_parts(runs_csv.parent.parent.name)
+            if parts is None:
+                continue
+            s, o, _ = parts
+            if seekers is not None and s not in seekers:
+                continue
+            if oracle is not None and o != oracle:
+                continue
         convs = _conversations_from_runs_csv(runs_csv, args.run_index, sample)
         if convs:
             groups.append((runs_csv.parent.name, convs))
@@ -150,6 +179,12 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--sample-indices", type=str, default=None,
                         help="Comma-separated 0-based positions in runs.csv after --run-index filter "
                              "(e.g., '10,20,30,40,50,60,70,80,90' → 9 targets per experiment)")
+    parser.add_argument("--seekers", type=str, default=None,
+                        help="Comma-separated seeker model names to keep (e.g. "
+                             "'Qwen3-8B,google/gemma-4-31B-it'). '/' slugified to '-'. "
+                             "Exact segment match on s_<seeker>__o_<oracle>__p_. Only with --all.")
+    parser.add_argument("--oracle", type=str, default=None,
+                        help="Filter to triples whose oracle matches this model. Only with --all.")
 
     parser.add_argument("--judge-model", default="gpt-oss-120b")
     parser.add_argument("--base-url", default=None, help="Skip servers.yaml lookup")

@@ -245,6 +245,10 @@ SAMPLE_FLAGS=""
 [ -n "${RUN_INDEX}" ]       && SAMPLE_FLAGS+=" --run-index ${RUN_INDEX}"
 [ -n "${SAMPLE_INDICES}" ]  && SAMPLE_FLAGS+=" --sample-indices ${SAMPLE_INDICES}"
 [ -n "${FORCE}" ]           && SAMPLE_FLAGS+=" --force"
+# SEEKERS / ORACLE: whitelist por triple (só com TARGET=all). Vírgula entre
+# nomes. '/' é slugificado para '-' internamente.
+[ -n "${SEEKERS:-}" ]       && SAMPLE_FLAGS+=" --seekers ${SEEKERS}"
+[ -n "${ORACLE:-}" ]        && SAMPLE_FLAGS+=" --oracle ${ORACLE}"
 
 EVAL_CMDS=""
 for t in "${TARGETS[@]}"; do

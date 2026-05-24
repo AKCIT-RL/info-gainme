@@ -42,6 +42,7 @@ if [ -z "${STY:-}" ] && [ "${FOREGROUND:-0}" != "1" ]; then
         BACKEND='${BACKEND:-}' BASE_URL='${BASE_URL:-}' API_KEY='${API_KEY:-}' MODEL='${MODEL:-}' \
         WHAT='${WHAT:-}' RUN_INDEX='${RUN_INDEX:-}' SAMPLE_INDICES='${SAMPLE_INDICES:-}' \
         WORKERS='${WORKERS:-}' TURN_WORKERS='${TURN_WORKERS:-}' FORCE='${FORCE:-}' \
+        SEEKERS='${SEEKERS:-}' ORACLE='${ORACLE:-}' \
         bash '${BASH_SOURCE[0]}' ${1:-}; exec bash"
     echo "  screen -r judge-eval"
     echo "  tail -f ${PROJECT_DIR}/logs/judge-eval-latest.out"
@@ -95,6 +96,9 @@ EXTRA_FLAGS=""
 [[ -n "${RUN_INDEX}" ]]      && EXTRA_FLAGS+=" --run-index ${RUN_INDEX}"
 [[ -n "${SAMPLE_INDICES}" ]] && EXTRA_FLAGS+=" --sample-indices ${SAMPLE_INDICES}"
 [[ "${FORCE}" == "1" ]]      && EXTRA_FLAGS+=" --force"
+# SEEKERS / ORACLE: whitelist por triple (só vale com TARGET_PATH vazio = --all).
+[[ -n "${SEEKERS:-}" ]]      && EXTRA_FLAGS+=" --seekers ${SEEKERS}"
+[[ -n "${ORACLE:-}" ]]       && EXTRA_FLAGS+=" --oracle ${ORACLE}"
 
 mkdir -p "${PROJECT_DIR}/logs"
 
