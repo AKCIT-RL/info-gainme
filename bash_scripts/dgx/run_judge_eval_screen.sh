@@ -97,6 +97,10 @@ EXTRA_FLAGS=""
 [[ -n "${SAMPLE_INDICES}" ]] && EXTRA_FLAGS+=" --sample-indices ${SAMPLE_INDICES}"
 [[ "${FORCE}" == "1" ]]      && EXTRA_FLAGS+=" --force"
 # SEEKERS / ORACLE: whitelist por triple (só vale com TARGET_PATH vazio = --all).
+# '+' é convertido para ',' (SLURM --export usa ',' como separator; usar '_'
+# falha porque modelos como paprika_Meta-Llama-3.1-8B-Instruct têm '_').
+SEEKERS="${SEEKERS//+/,}"
+ORACLE="${ORACLE//+/,}"
 [[ -n "${SEEKERS:-}" ]]      && EXTRA_FLAGS+=" --seekers ${SEEKERS}"
 [[ -n "${ORACLE:-}" ]]       && EXTRA_FLAGS+=" --oracle ${ORACLE}"
 
