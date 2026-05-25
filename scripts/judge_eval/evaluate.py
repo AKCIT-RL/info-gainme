@@ -193,6 +193,10 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--api-key", default=os.environ.get("OPENAI_API_KEY", "EMPTY"))
     parser.add_argument("--temperature", type=float, default=None)
     parser.add_argument("--timeout", type=float, default=300.0)
+    parser.add_argument("--reasoning-effort", default=None,
+                        choices=["minimal", "low", "medium", "high"],
+                        help="gpt-oss reasoning_effort override (extra_body). "
+                             "Reduces thinking tokens and latency.")
 
     parser.add_argument("--workers", type=int, default=8, help="Conversations in parallel")
     parser.add_argument("--turn-workers", type=int, default=4, help="Turns per conversation in parallel")
@@ -215,9 +219,12 @@ def main() -> None:
                      "or add it to configs/servers.yaml.", args.judge_model)
         sys.exit(2)
 
+    extra: dict = {}
+    if args.reasoning_effort:
+        extra["extra_body"] = {"reasoning_effort": args.reasoning_effort}
     adapter = build_judge_adapter(
         model=args.judge_model, base_url=base_url, api_key=args.api_key,
-        temperature=args.temperature, timeout=args.timeout,
+        temperature=args.temperature, timeout=args.timeout, extra=extra,
     )
     logger.info("Target: %s  |  Judge: %s @ %s", args.target, args.judge_model, base_url)
 
