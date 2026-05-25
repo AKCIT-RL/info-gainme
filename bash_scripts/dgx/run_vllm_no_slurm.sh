@@ -19,7 +19,7 @@ export VLLM_PORT=8800
 
 # ── GPUs to use (THIS replaces SLURM allocation) ──────────────────
 export CUDA_VISIBLE_DEVICES=4,5
-export NUM_GPUS=2
+export NUM_GPUS=1
 
 # ── model config ──────────────────────────────────────────────────
 export MODEL="Qwen/Qwen3-8B"
