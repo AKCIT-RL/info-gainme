@@ -97,6 +97,7 @@ SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 # (9.5T livres) pra evitar "FATAL ERROR: writer: failed to write file" no
 # unpack. Sobrescreva via env se quiser outro caminho.
 export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-/raid/user_danielpedrozo/tmp/singularity}"
+export APPTAINER_TMPDIR="${APPTAINER_TMPDIR:-${SINGULARITY_TMPDIR}}"
 mkdir -p "${SINGULARITY_TMPDIR}"
 
 
