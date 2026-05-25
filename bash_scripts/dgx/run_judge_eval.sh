@@ -87,7 +87,7 @@ ORACLE="${ORACLE//+/,}"
 PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
 SHARED_GROUP="sd22"
 SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
-export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-/raid/user_danielpedrozo/tmp/singularity}"
+export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-/raid/user_danielpedrozo/tmp/singularity-${USER}}"
 export APPTAINER_TMPDIR="${APPTAINER_TMPDIR:-${SINGULARITY_TMPDIR}}"
 mkdir -p "${SINGULARITY_TMPDIR}"
 

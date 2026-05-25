@@ -95,8 +95,9 @@ SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 # Singularity descompacta o .sif em TMPDIR antes de exec. Default /tmp vive
 # em / (root) que enche rápido (B200-1 hoje: 100% used). Apontamos pra /raid
 # (9.5T livres) pra evitar "FATAL ERROR: writer: failed to write file" no
-# unpack. Sobrescreva via env se quiser outro caminho.
-export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-/raid/user_danielpedrozo/tmp/singularity}"
+# unpack. Usa ${USER} para que qualquer usuário (juliadollis, danielpedrozo)
+# escreva no seu próprio subdir sem conflito de permissão.
+export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-/raid/user_danielpedrozo/tmp/singularity-${USER}}"
 export APPTAINER_TMPDIR="${APPTAINER_TMPDIR:-${SINGULARITY_TMPDIR}}"
 mkdir -p "${SINGULARITY_TMPDIR}"
 
