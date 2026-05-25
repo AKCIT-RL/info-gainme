@@ -175,6 +175,39 @@ bash dgx/run_analyze_traces.sh /custom/outputs  # custom directory
 ```
 Aggregates all `seeker_traces.json` (CoT only) to generate `reasoning_traces_analysis.json` with question frequency, decision patterns, and per-model aggregations.
 
+## Judge eval (gpt-oss-120b grading Oracle/Pruner answers)
+
+`bash_scripts/dgx/run_judge_eval.sh` (SLURM) or `run_judge_eval_screen.sh` (screen) grades existing Oracle/Pruner outputs against a larger model (default `gpt-oss-120b`, served from this job). Filters: `RUN_INDEX=1` and `SAMPLE_INDICES=10,20,...,150` by default (15 conversations per experiment, run01 only). Whitelist seekers/oracles via `SEEKERS=<a>+<b>+...` and `ORACLE=<name>` (`+` separator because `,` collides with `--export`).
+
+**⚠️ CRITICAL: always pass `JUDGE_REASONING_EFFORT=low` when using gpt-oss judges.** Without it, gpt-oss-120b's default `reasoning_effort=medium` produces multi-minute thinking traces per turn — single conversations get stuck retrying for 8+ hours. With `low`, generation stays under ~60s and the job completes at ~1 ok/min with **zero timeouts**. Quality impact is negligible for the binary correctness call the judge is making.
+
+```bash
+# Canonical judge eval submission (h100n3, 10 seekers + Qwen3-8B oracle, low reasoning):
+sbatch --partition=h100n3 --gres=gpu:2 \
+  --export=ALL,WHAT=both,JUDGE_MAX_LEN=32000,JUDGE_GPU_MEM=0.85,JUDGE_REASONING_EFFORT=low,\
+SEEKERS=Llama-3.1-8B-Instruct+Nemotron-Cascade-8B+Qwen3-30B-A3B-Instruct-2507+Qwen3-30B-A3B-Thinking-2507+Qwen3-4B-Instruct-2507+Qwen3-4B-Thinking-2507+Qwen3-8B+google/gemma-4-31B-it+google/gemma-4-E4B-it+paprika_Meta-Llama-3.1-8B-Instruct,\
+ORACLE=Qwen3-8B \
+  bash_scripts/dgx/run_judge_eval.sh
+```
+
+`JUDGE_TIMEOUT` defaults to 600s (HTTP client timeout). Don't raise it without first lowering reasoning_effort — generation time is the bottleneck, not transport.
+
+## Question choice evaluation (`evaluate_all_seeker_choices.py`)
+
+Re-runs Oracle+Pruner on every question the Seeker *considered* (from `seeker_traces.json`) to compute counterfactual IG for each candidate. Different from judge eval: this uses real Oracle+Pruner models (Qwen3-8B) on the actual game state, not an LLM grader.
+
+```bash
+# Same filter scope as judge eval (run01, 15 samples, 10 canonical seekers):
+ONLY_RUN_INDEX=1 \
+SAMPLE_INDICES="10,20,30,40,50,60,70,80,90,100,110,120,130,140,150" \
+SEEKERS="Llama-3.1-8B-Instruct+...+paprika_Meta-Llama-3.1-8B-Instruct" \
+bash bash_scripts/dgx/run_evaluate_choices_screen.sh
+```
+
+`SEEKERS` and `SAMPLE_INDICES` accept `+` as separator (same convention as judge eval). The script also accepts `TRACES_JSONL` (override the unified `outputs/seeker_traces.jsonl` source) and `UNIFIED_JSONL` (override the output file) — use both together to run a dedicated eval pass without touching the legacy aggregate.
+
+**Only the 6 of 10 canonical seekers that have CoT runs are processed** — `Llama-3.1-8B-Instruct`, the two `Qwen3-*-Instruct-2507`, and `paprika_*` are `no_cot` only, so they're filtered out by the `_cot` directory pattern in `find_cot_runs_csvs`.
+
 ## Configuration
 
 **Experiment configs** live in `configs/full/<model>/` as YAML files. Human baseline configs live in `configs/human/`. Each specifies:
@@ -361,6 +394,8 @@ outputs/
 **File permissions:**
 - Shared group `sd22` — scripts wrap commands with `sg sd22 -c "..."` to ensure files created by Singularity are group-writable
 - `umask 002` is set in dgx scripts so new files are group-writable by default
+- **`SINGULARITY_TMPDIR` is per-user**: all dgx scripts default to `/raid/user_danielpedrozo/tmp/singularity-${USER}` (commit `2727408`). Each user (danielpedrozo, juliadollis) gets their own subdir so jobs submitted by juliadollis in danielpedrozo's project don't fail with "mkdir … permission denied" on the temp sandbox. Override via env if you need a custom path.
+- **Host ↔ container path mapping:** `--bind /raid/user_danielpedrozo:/workspace` means absolute paths written by code inside Singularity start with `/workspace/...`. When comparing those to host paths (e.g. matching `seeker_path` from `seeker_traces.jsonl` against an `outputs/...` dir on the host), translate `/workspace/projects/info-gainme_dev` → `/raid/user_danielpedrozo/projects/info-gainme_dev` or the comparison silently returns 0 matches.
 
 **vLLM orchestration (`run_full_benchmark.sh`):**
 - Ports derived from `SLURM_JOB_ID` with gap of 10 between neighbours (`BASE_PORT = 8000 + (JOB_ID % 500) * 10`) + `ss -tln` check to avoid collisions when jobs land on the same node
