@@ -56,6 +56,9 @@ auto_reasoning_parser() {
 [ -z "${JUDGE_REASONING_PARSER+x}" ] && JUDGE_REASONING_PARSER=$(auto_reasoning_parser "${JUDGE_MODEL_NAME}")
 [ "${JUDGE_REASONING_PARSER}" = "none" ] && JUDGE_REASONING_PARSER=""
 JUDGE_EXTRA_ARGS="${JUDGE_EXTRA_ARGS:-}"               # any extra vllm flags
+# HTTP client timeout per LLM call (seconds). gpt-oss-120b with reasoning can
+# take several minutes for complex turns — 600s avoids spurious timeout retries.
+JUDGE_TIMEOUT="${JUDGE_TIMEOUT:-600}"
 
 TARGET="${TARGET:-all}"                                 # runs.csv | conv dir | "all"
 WHAT="${WHAT:-both}"                                    # oracle | pruner | both
@@ -273,7 +276,8 @@ for t in "${TARGETS[@]}"; do
     EVAL_CMDS+="python3 scripts/judge_eval/evaluate.py --target ${t} ${TARGET_FLAG} \
         --judge-model '${JUDGE_MODEL_NAME}' \
         --servers-override '${SERVERS_OVERRIDE}' \
-        --workers ${WORKERS} --turn-workers ${TURN_WORKERS}${SAMPLE_FLAGS}; "
+        --workers ${WORKERS} --turn-workers ${TURN_WORKERS} \
+        --timeout ${JUDGE_TIMEOUT}${SAMPLE_FLAGS}; "
 done
 EVAL_CMDS+="python3 scripts/judge_eval/aggregate_judge_results.py"
 
