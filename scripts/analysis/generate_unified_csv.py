@@ -151,17 +151,28 @@ def _extract_from_runs_csv(runs_csv: Path) -> dict | None:
         return None
 
 
-def _iter_experiments(base_outputs_dir: Path, only_run: int | None = None) -> list[dict]:
+def _summary_filename(only_run) -> str:
+    """summary.json (None), summary_runNN.json (int/1-tuple) ou summary_runNN-MM.json (tuple)."""
+    if only_run is None:
+        return "summary.json"
+    if isinstance(only_run, int):
+        return f"summary_run{only_run:02d}.json"
+    if len(only_run) == 1:
+        return f"summary_run{only_run[0]:02d}.json"
+    return "summary_run" + "-".join(f"{r:02d}" for r in only_run) + ".json"
+
+
+def _iter_experiments(base_outputs_dir: Path, only_run=None) -> list[dict]:
     """Percorre o diretório base e coleta linhas para o CSV unificado.
 
     Args:
         base_outputs_dir: Diretório raiz de outputs.
-        only_run: Se definido, lê ``summary_runNN.json`` em vez de ``summary.json``.
+        only_run: ``None``, int, ou tupla de ints. Determina qual summary_*.json ler.
                   Pastas sem o arquivo filtrado são puladas (não há fallback para runs.csv
                   quando only_run está ativo, pois o CSV filtrado ainda não foi gerado).
     """
     rows: list[dict] = []
-    summary_filename = f"summary_run{only_run:02d}.json" if only_run is not None else "summary.json"
+    summary_filename = _summary_filename(only_run)
 
     # Preferir summary(_runNN).json quando disponível
     for summary_path in sorted(base_outputs_dir.rglob(summary_filename)):
@@ -215,21 +226,31 @@ Exemplos:
     )
     parser.add_argument(
         "--only-run",
-        type=int,
+        type=str,
         default=None,
-        metavar="N",
+        metavar="N[,M,...]",
         help=(
-            "Lê summary_runNN.json em vez de summary.json. "
-            "Salva em unified_experiments_runNN.csv."
+            "Lê summary_runNN.json (ou summary_runNN-MM.json) em vez de summary.json. "
+            "Aceita lista separada por vírgula (ex.: '1,2'). "
+            "Salva em unified_experiments_runNN[-MM].csv."
         ),
     )
 
     args = parser.parse_args()
-    only_run: int | None = args.only_run
+
+    # Parse "1,2" → (1, 2); "1" → (1,); None → None
+    only_run = None
+    if args.only_run:
+        only_run = tuple(sorted({int(p) for p in str(args.only_run).split(",") if p.strip()}))
 
     base_outputs_dir = Path(args.base_dir) if args.base_dir else default_base
 
-    run_suffix = f"_run{only_run:02d}" if only_run is not None else ""
+    if only_run is None:
+        run_suffix = ""
+    elif len(only_run) == 1:
+        run_suffix = f"_run{only_run[0]:02d}"
+    else:
+        run_suffix = "_run" + "-".join(f"{r:02d}" for r in only_run)
     default_out = base_outputs_dir / f"unified_experiments{run_suffix}.csv"
     output_csv = Path(args.output) if args.output else default_out
 
@@ -237,7 +258,7 @@ Exemplos:
         print(f"❌ Diretório de outputs não encontrado: {base_outputs_dir}")
         return 1
 
-    summary_name = f"summary_run{only_run:02d}.json" if only_run is not None else "summary.json"
+    summary_name = _summary_filename(only_run)
     print(f"🔎 Lendo experimentos em: {base_outputs_dir}")
     print(f"📄 Fonte: {summary_name}")
     rows = _iter_experiments(base_outputs_dir, only_run=only_run)

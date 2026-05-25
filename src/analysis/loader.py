@@ -17,13 +17,15 @@ def _safe_int(value) -> int | None:
         return None
 
 
-def load_experiment_results(csv_path: Path, only_run: int | None = None) -> ExperimentResults:
+def load_experiment_results(csv_path: Path, only_run: "int | tuple[int, ...] | list[int] | set[int] | None" = None) -> ExperimentResults:
     """
     Carrega um arquivo runs.csv e retorna ExperimentResults estruturado.
 
     Args:
         csv_path: Caminho para runs.csv
-        only_run: Se especificado, filtra apenas as linhas cujo run_index == only_run.
+        only_run: Se especificado, filtra apenas as linhas cujo run_index está
+            no conjunto fornecido. Aceita um único int (compat) ou tupla/lista/set
+            de ints para múltiplos runs (ex.: ``(1, 2)`` para combinar run01+run02).
 
     Returns:
         ExperimentResults com todas as métricas calculadas
@@ -44,9 +46,10 @@ def load_experiment_results(csv_path: Path, only_run: int | None = None) -> Expe
         raise ValueError(f"CSV vazio: {csv_path}")
 
     if only_run is not None:
-        rows = [r for r in rows if _safe_int(r.get("run_index")) == only_run]
+        allowed = {only_run} if isinstance(only_run, int) else set(only_run)
+        rows = [r for r in rows if _safe_int(r.get("run_index")) in allowed]
         if not rows:
-            raise ValueError(f"Nenhuma linha com run_index={only_run} em: {csv_path}")
+            raise ValueError(f"Nenhuma linha com run_index in {sorted(allowed)} em: {csv_path}")
     
     # Extrair metadata do experimento (da primeira linha)
     first = rows[0]
