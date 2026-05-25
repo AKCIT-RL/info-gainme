@@ -24,7 +24,26 @@ from src.analysis.loader import load_experiment_results
 from src.analysis.writer import save_summary, save_city_variance
 
 
-def _analyze_single_csv(csv_path_str: str, verbose: bool = True, force: bool = False, only_run: int | None = None) -> tuple[str, int]:
+def _parse_only_run(arg: "str | None") -> "tuple[int, ...] | None":
+    """Aceita ``None``, ``"1"``, ``"1,2"`` e retorna tupla ordenada de ints."""
+    if arg is None or arg == "":
+        return None
+    parts = [p.strip() for p in str(arg).split(",") if p.strip()]
+    return tuple(sorted({int(p) for p in parts}))
+
+
+def _run_suffix(only_run: "tuple[int, ...] | int | None") -> str:
+    """Sufixo pra summary_runNN.json / variance_runNN.json."""
+    if only_run is None:
+        return ""
+    if isinstance(only_run, int):
+        return f"_run{only_run:02d}"
+    if len(only_run) == 1:
+        return f"_run{only_run[0]:02d}"
+    return "_run" + "-".join(f"{r:02d}" for r in only_run)
+
+
+def _analyze_single_csv(csv_path_str: str, verbose: bool = True, force: bool = False, only_run: "int | tuple[int, ...] | None" = None) -> tuple[str, int]:
     """Executa a análise para um único arquivo runs.csv.
 
     Args:
@@ -56,7 +75,7 @@ def _analyze_single_csv(csv_path_str: str, verbose: bool = True, force: bool = F
         return (csv_path_str, 1)
 
     # Sufixo para diferenciar outputs quando --only-run está ativo
-    run_suffix = f"_run{only_run:02d}" if only_run is not None else ""
+    run_suffix = _run_suffix(only_run)
 
     # Pular se summary.json (ou summary_runXX.json) já existe e é mais recente que runs.csv
     if not force:
@@ -133,7 +152,11 @@ def _analyze_single_csv(csv_path_str: str, verbose: bool = True, force: bool = F
         print(f"   - summary{run_suffix}.json (métricas globais + por cidade)")
         print(f"   - variance{run_suffix}.json (foco em variância)")
         if only_run is not None:
-            print(f"   ℹ️  Filtro ativo: run_index == {only_run}")
+            if isinstance(only_run, int) or len(only_run) == 1:
+                ro = only_run if isinstance(only_run, int) else only_run[0]
+                print(f"   ℹ️  Filtro ativo: run_index == {ro}")
+            else:
+                print(f"   ℹ️  Filtro ativo: run_index in {list(only_run)}")
         print(f"{'='*70}\n")
 
     return (csv_path_str, 0)
@@ -180,12 +203,13 @@ Exemplos:
     )
     parser.add_argument(
         "--only-run",
-        type=int,
+        type=str,
         default=None,
-        metavar="N",
+        metavar="N[,M,...]",
         help=(
-            "Filtra apenas linhas com run_index == N. "
-            "Outputs salvos como summary_runNN.json / variance_runNN.json."
+            "Filtra apenas linhas com run_index em N (ou lista separada por vírgula, "
+            "ex.: '1,2' combina run01 + run02). "
+            "Outputs salvos como summary_runNN.json (1 valor) ou summary_runNN-MM.json (vários)."
         ),
     )
     parser.add_argument(
@@ -196,7 +220,7 @@ Exemplos:
 
     args = parser.parse_args()
 
-    only_run: int | None = args.only_run
+    only_run = _parse_only_run(args.only_run)
 
     # Sem argumentos → tenta default_csv legado
     if not args.all_mode and args.target is None:
@@ -220,7 +244,7 @@ Exemplos:
             print(f"❌ Nenhum runs.csv encontrado em: {base_dir}")
             return 1
 
-        run_label = f" (run_index={only_run})" if only_run is not None else ""
+        run_label = f" (run_index in {list(only_run)})" if only_run is not None else ""
         print(f"\n{'='*70}")
         print(f"🚀 PROCESSAMENTO PARALELO - {len(runs_files)} arquivos{run_label}")
         print(f"{'='*70}")

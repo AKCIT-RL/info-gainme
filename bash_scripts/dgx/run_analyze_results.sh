@@ -4,6 +4,7 @@
 #   ./dgx/run_analyze_results.sh                     # analisa todos os runs.csv
 #   ./dgx/run_analyze_results.sh path/to.csv         # analisa um CSV específico
 #   ./dgx/run_analyze_results.sh --only-run 1        # filtra run_index=1 (gera summary_run01.json)
+#   ./dgx/run_analyze_results.sh --only-run 1,2      # combina runs 1+2 (gera summary_run01-02.json)
 #   ./dgx/run_analyze_results.sh path/to.csv --only-run 1
 
 umask 002
