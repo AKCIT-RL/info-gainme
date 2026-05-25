@@ -59,6 +59,8 @@ JUDGE_EXTRA_ARGS="${JUDGE_EXTRA_ARGS:-}"               # any extra vllm flags
 # HTTP client timeout per LLM call (seconds). gpt-oss-120b with reasoning can
 # take several minutes for complex turns — 600s avoids spurious timeout retries.
 JUDGE_TIMEOUT="${JUDGE_TIMEOUT:-600}"
+# gpt-oss reasoning effort: minimal|low|medium|high (empty = model default).
+JUDGE_REASONING_EFFORT="${JUDGE_REASONING_EFFORT:-}"
 
 TARGET="${TARGET:-all}"                                 # runs.csv | conv dir | "all"
 WHAT="${WHAT:-both}"                                    # oracle | pruner | both
@@ -273,11 +275,13 @@ SAMPLE_FLAGS=""
 EVAL_CMDS=""
 for t in "${TARGETS[@]}"; do
     EVAL_CMDS+="echo ''; echo \"[$(date '+%%H:%%M:%%S')] --target ${t}\"; "
+    _reasoning_effort_flag=""
+    [ -n "${JUDGE_REASONING_EFFORT}" ] && _reasoning_effort_flag=" --reasoning-effort ${JUDGE_REASONING_EFFORT}"
     EVAL_CMDS+="python3 scripts/judge_eval/evaluate.py --target ${t} ${TARGET_FLAG} \
         --judge-model '${JUDGE_MODEL_NAME}' \
         --servers-override '${SERVERS_OVERRIDE}' \
         --workers ${WORKERS} --turn-workers ${TURN_WORKERS} \
-        --timeout ${JUDGE_TIMEOUT}${SAMPLE_FLAGS}; "
+        --timeout ${JUDGE_TIMEOUT}${_reasoning_effort_flag}${SAMPLE_FLAGS}; "
 done
 EVAL_CMDS+="python3 scripts/judge_eval/aggregate_judge_results.py"
 
