@@ -92,6 +92,13 @@ PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
 SHARED_GROUP="sd22"
 SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 
+# Singularity descompacta o .sif em TMPDIR antes de exec. Default /tmp vive
+# em / (root) que enche rápido (B200-1 hoje: 100% used). Apontamos pra /raid
+# (9.5T livres) pra evitar "FATAL ERROR: writer: failed to write file" no
+# unpack. Sobrescreva via env se quiser outro caminho.
+export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-/raid/user_danielpedrozo/tmp/singularity}"
+mkdir -p "${SINGULARITY_TMPDIR}"
+
 
 # ============================================
 # GPU Detection & Mode Selection

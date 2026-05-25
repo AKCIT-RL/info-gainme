@@ -36,6 +36,8 @@ RUN_TS="${RUN_TS:-$(date +%Y%m%d-%H%M%S)}"
 
 PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
 SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
+export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-/raid/user_danielpedrozo/tmp/singularity}"
+mkdir -p "${SINGULARITY_TMPDIR}"
 
 # Auto-screen: se não estamos num screen e FOREGROUND não foi pedido, lança um.
 # screen seta $STY automaticamente, então o re-entry no script segue direto.

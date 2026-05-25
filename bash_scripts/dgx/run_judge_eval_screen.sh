@@ -33,6 +33,8 @@ RUN_TS="${RUN_TS:-$(date +%Y%m%d-%H%M%S)}"
 
 PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
 SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
+export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-/raid/user_danielpedrozo/tmp/singularity}"
+mkdir -p "${SINGULARITY_TMPDIR}"
 
 # Auto-screen
 if [ -z "${STY:-}" ] && [ "${FOREGROUND:-0}" != "1" ]; then
