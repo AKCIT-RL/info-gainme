@@ -82,6 +82,8 @@ ORACLE="${ORACLE//+/,}"
 PROJECT_DIR="/raid/user_danielpedrozo/projects/info-gainme_dev"
 SHARED_GROUP="sd22"
 SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
+export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-/raid/user_danielpedrozo/tmp/singularity}"
+mkdir -p "${SINGULARITY_TMPDIR}"
 
 export VLLM_MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-32}"
 # VLLM_MAX_NUM_BATCHED_TOKENS controla o tamanho do batch de prefill por step.
