@@ -10,16 +10,15 @@ JOBS=(
 
 for j in "${JOBS[@]}"; do
   IFS='|' read -r CFG M1 M1NAME GPUS <<< "$j"
-  SCR="ig-$(echo "$M1NAME" | tr '/' '-')"
-  echo ">> screen $SCR  ←  $CFG  (GPUs $GPUS)"
-  screen -dmS "$SCR" bash -c "
-    MODE=seeker_only \
-    MODEL1='$M1' MODEL1_NAME='$M1NAME' MODEL2_NAME=Qwen3-8B \
-    FORCE_GPUS='$GPUS' \
-    VLLM_ENGINE_READY_TIMEOUT_S=3600 \
-    CONFIGS_TARGET='$CFG' \
-    srun --partition=b200n1 --gres=gpu:1 --mem=60G --time=2-00:00:00 \
-         --output='/raid/user_danielpedrozo/projects/info-gainme_dev/logs/%x-%j.log' --job-name=info-gainme-full \
-      bash bash_scripts/dgx/run_full_benchmark.sh; exec bash"
+  JOB_NAME="ig-$(echo "$M1NAME" | tr '/' '-')"
+  echo ">> sbatch $JOB_NAME  ←  $CFG"
+  sbatch \
+    --partition=b200n1 \
+    --gres=gpu:1 \
+    --mem=60G \
+    --time=2-00:00:00 \
+    --job-name="$JOB_NAME" \
+    --output="/raid/user_danielpedrozo/projects/info-gainme_dev/logs/%x-%j.log" \
+    --export=ALL,MODE=seeker_only,MODEL1="$M1",MODEL1_NAME="$M1NAME",MODEL2_NAME=Qwen3-8B,VLLM_ENGINE_READY_TIMEOUT_S=3600,CONFIGS_TARGET="$CFG" \
+    bash_scripts/dgx/run_full_benchmark.sh
 done
-
