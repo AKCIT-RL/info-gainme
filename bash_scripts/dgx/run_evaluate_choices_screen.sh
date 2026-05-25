@@ -82,8 +82,15 @@ EXTRA_FLAGS=""
 [[ "${DRY_RUN}" == "1" ]]          && EXTRA_FLAGS+=" --dry-run"
 [[ -n "${TEMPERATURE:-}" ]]        && EXTRA_FLAGS+=" --temperature ${TEMPERATURE}"
 [[ -n "${ONLY_RUN_INDEX:-}" ]]     && EXTRA_FLAGS+=" --only-run-index ${ONLY_RUN_INDEX}"
-# SAMPLE_INDICES removido: a seleção de conversas é SEMPRE a do --traces-jsonl
-# (1-pra-1 com o synthesize_traces, sem mismatch de ordenação).
+# SAMPLE_INDICES: filtro de posições 0-based no runs.csv (após ONLY_RUN_INDEX).
+# Mirrors judge_eval --sample-indices. '+' é convertido para ',' (compatível
+# com --export do SLURM, onde ',' quebra o parsing dos pares KEY=VAL).
+SAMPLE_INDICES="${SAMPLE_INDICES//+/,}"
+[[ -n "${SAMPLE_INDICES:-}" ]]     && EXTRA_FLAGS+=" --sample-indices ${SAMPLE_INDICES}"
+# SEEKERS: whitelist de seeker slugs separados por ',' (ou '+' via --export).
+# Só tem efeito com --all.
+SEEKERS="${SEEKERS//+/,}"
+[[ -n "${SEEKERS:-}" ]]            && EXTRA_FLAGS+=" --seekers ${SEEKERS}"
 # TRACES_JSONL: agregado alternativo (ex.: outputs/seeker_traces_gemma.jsonl).
 # Default = outputs/seeker_traces.jsonl. Caminho relativo ao project_dir.
 [[ -n "${TRACES_JSONL:-}" ]]       && EXTRA_FLAGS+=" --traces-jsonl ${TRACES_JSONL}"

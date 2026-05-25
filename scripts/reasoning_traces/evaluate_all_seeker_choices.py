@@ -167,10 +167,25 @@ def _resolve_base_url(model: str, cli_url: Optional[str]) -> str:
     return url.rstrip("/")
 
 
+def _slug(name: str) -> str:
+    return name.replace("/", "-")
+
+
+def _triple_parts(dir_name: str):
+    """Parse 's_<seeker>__o_<oracle>__p_<pruner>' → (seeker, oracle, pruner) or None."""
+    if not dir_name.startswith("s_") or "__o_" not in dir_name or "__p_" not in dir_name:
+        return None
+    rest = dir_name[2:]
+    s, _, rest = rest.partition("__o_")
+    o, _, p = rest.partition("__p_")
+    return (s, o, p) if s and o and p else None
+
+
 def find_conversation_dirs_from_runs_csv(
     runs_csv_path: Path,
     outputs_base_dir: Path,
     only_run_index: Optional[int] = None,
+    sample_indices: Optional[List[int]] = None,
 ) -> List[Path]:
     """
     Reads a runs.csv file and returns a list of unique conversation directory paths.
@@ -180,34 +195,38 @@ def find_conversation_dirs_from_runs_csv(
         outputs_base_dir: Base directory where conversation paths are relative to.
         only_run_index: If given, keep only rows matching this run_index (e.g. 1
             to evaluate just run01 of every target).
+        sample_indices: If given, pick rows at these 0-based positions within the
+            filtered list (mirrors judge_eval --sample-indices behaviour).
 
     Returns:
         List of conversation directory paths.
     """
-    conversation_dirs = set()
-
     if not runs_csv_path.exists():
         raise FileNotFoundError(f"runs.csv not found: {runs_csv_path}")
 
     with runs_csv_path.open("r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            if only_run_index is not None:
-                try:
-                    if int(row.get("run_index", "")) != only_run_index:
-                        continue
-                except (TypeError, ValueError):
-                    continue
-            conversation_path_str = row.get("conversation_path")
-            if conversation_path_str:
-                # conversation_path is relative to outputs_base_dir
-                full_conversation_path = outputs_base_dir / conversation_path_str
-                if full_conversation_path.exists():
-                    conversation_dirs.add(full_conversation_path)
-                else:
-                    logger.warning("Conversation directory not found: %s", full_conversation_path)
+        rows = list(csv.DictReader(f))
 
-    return sorted(list(conversation_dirs))
+    if only_run_index is not None:
+        rows = [r for r in rows if str(r.get("run_index", "")).strip() == str(only_run_index)]
+
+    if sample_indices is not None:
+        rows = [rows[i] for i in sample_indices if 0 <= i < len(rows)]
+
+    conversation_dirs: list[Path] = []
+    seen: set[Path] = set()
+    for row in rows:
+        conversation_path_str = row.get("conversation_path")
+        if not conversation_path_str:
+            continue
+        full_conversation_path = outputs_base_dir / conversation_path_str
+        if full_conversation_path.exists() and full_conversation_path not in seen:
+            seen.add(full_conversation_path)
+            conversation_dirs.append(full_conversation_path)
+        elif not full_conversation_path.exists():
+            logger.warning("Conversation directory not found: %s", full_conversation_path)
+
+    return conversation_dirs
 
 
 def process_single_conversation(
@@ -491,6 +510,7 @@ def run_for_csv(
     dataset_csv: Optional[Path],
     only_run_index: Optional[int] = None,
     sample_filter: Optional[Set[Path]] = None,
+    sample_indices: Optional[List[int]] = None,
 ) -> int:
     """Process a single runs.csv. Returns 0 on success, 1 if any errors.
 
@@ -500,7 +520,9 @@ def run_for_csv(
     """
     try:
         conversation_dirs = find_conversation_dirs_from_runs_csv(
-            runs_csv_path, outputs_base_dir, only_run_index=only_run_index,
+            runs_csv_path, outputs_base_dir,
+            only_run_index=only_run_index,
+            sample_indices=sample_indices,
         )
     except FileNotFoundError as e:
         logger.error("Error: %s", e)
@@ -652,6 +674,20 @@ def main():
              "run_index (e.g. 1 to keep just run01).",
     )
     parser.add_argument(
+        "--sample-indices",
+        type=str,
+        default=None,
+        help="Comma-separated 0-based row positions within the (run-index-filtered) "
+             "runs.csv to evaluate (e.g. '10,20,30,...,150'). Mirrors judge_eval behaviour.",
+    )
+    parser.add_argument(
+        "--seekers",
+        type=str,
+        default=None,
+        help="Comma-separated seeker model slugs to process with --all "
+             "(e.g. 'Qwen3-8B,google-gemma-4-31B-it'). '/' → '-'. Only with --all.",
+    )
+    parser.add_argument(
         "--max-workers",
         type=int,
         default=1,
@@ -746,11 +782,27 @@ def main():
         len(sample_filter), seeker_traces_jsonl.name,
     )
 
+    sample_indices: Optional[List[int]] = None
+    if args.sample_indices:
+        sample_indices = [int(x) for x in args.sample_indices.split(",") if x.strip()]
+
+    allowed_seekers: Optional[set] = None
+    if args.seekers:
+        allowed_seekers = {_slug(s.strip()) for s in args.seekers.split(",") if s.strip()}
+
     if args.all:
         runs_csvs = find_cot_runs_csvs(args.outputs_base_dir)
+        if allowed_seekers is not None:
+            runs_csvs = [
+                csv for csv in runs_csvs
+                if _triple_parts(csv.parent.parent.name) is not None
+                and _triple_parts(csv.parent.parent.name)[0] in allowed_seekers
+            ]
         logger.info("🔎 %d CoT runs.csv found under %s", len(runs_csvs), args.outputs_base_dir)
         if args.only_run_index is not None:
             logger.info("🎯 Filtering to run_index=%d only", args.only_run_index)
+        if sample_indices is not None:
+            logger.info("🎯 sample_indices: %s", args.sample_indices)
         any_error = False
         for i, runs_csv in enumerate(runs_csvs, 1):
             logger.info("\n[%d/%d] %s", i, len(runs_csvs), runs_csv.parent.name)
@@ -760,6 +812,7 @@ def main():
                 args.max_workers, args.force, args.dry_run, args.dataset_csv,
                 only_run_index=args.only_run_index,
                 sample_filter=sample_filter,
+                sample_indices=sample_indices,
             )
             if rc != 0:
                 any_error = True
@@ -774,6 +827,7 @@ def main():
             args.max_workers, args.force, args.dry_run, args.dataset_csv,
             only_run_index=args.only_run_index,
             sample_filter=sample_filter,
+            sample_indices=sample_indices,
         )
 
 
