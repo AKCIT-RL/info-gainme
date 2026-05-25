@@ -251,7 +251,7 @@ All non-ablation configs in `configs/full/` follow these defaults — keep new c
 | `models.pruner.model` | `Qwen3-8B` | same |
 | `models.{oracle,pruner}.timeout` | `120.0` | |
 | `game.max_turns` | `30` | |
-| `dataset.runs_per_target` | `1` | older runs (8b/30b/4b/olmo3-7b) used `3` and may show pct >100% in audits — cap at `expected` for honest pct |
+| `dataset.runs_per_target` | `1` (paper-effective) | older runs (8b/30b/4b/olmo3-7b) used `3` and may show pct >100% in audits — cap at `expected` for honest pct. **Discrepancy to know:** current YAMLs under `configs/full/` are set to `runs_per_target: 2`, but the paper's analysis pipeline reads `experiments_analysis_run01.csv` (single run) and reports $\lvert\Omega_0\rvert$ games per config (160 geo/diseases, 158 objects), not $2\lvert\Omega_0\rvert$. Treat 1 as the paper-facing number; the extra runs in CSVs are dev-only |
 
 **Ablation configs** (`configs/full/ablation_pruner_oracle/`) intentionally vary oracle+pruner (Gemma-12B or Nemotron-Cascade-8B in both); ignore them when computing main-track standardization checks.
 
@@ -339,7 +339,14 @@ scripts/
     generate_question_evaluations_csv.py  ← flatten question_evaluation.json → CSV
     summary_table.py                  ← decision-quality summary table (Table 2)
   question_classification/        ← post-hoc classification of seeker questions
-    classify_questions.py
+    classify_questions.py             ← implemented schema (NOT the old paper's Hierarchical/Feature-based):
+                                         primary `question_type` ∈ {semantic, lexical, direct_guess, malformed, other}
+                                         + orthogonal binary `redundancy` ∈ {none, exact_duplicate, semantic_equivalent, strictly_implied}
+                                         + secondary subclass tags (hierarchical_category, fine_grained_category, comparative,
+                                         relational, quantitative_threshold, compound_predicate, meta_strategy, ...) — kept as
+                                         an interpretive lens with no structural ground truth; use sparingly.
+                                         MH projection: semantic+lexical→CS, direct_guess→HS, malformed kept apart.
+                                         The classifier reads only the Q&A history — it never sees $\Omega_t$.
     analyze_question_classifications.py
     flatten_question_classifications.py
 ```
