@@ -16,7 +16,7 @@
 #   VLLM_PORT          server port            (8802)
 #   MODEL / MODEL_NAME HF id / served name    (openai/gpt-oss-120b / gpt-oss-120b)
 #   MODEL_GPU_MEM      gpu-memory-utilization (0.92)
-#   MODEL_MAX_LEN      max-model-len          (131072)
+#   MODEL_MAX_LEN      max-model-len          (62000)
 #   MODEL_MAX_NUM_SEQS max-num-seqs           (64)
 #   VLLM_PIP_UPGRADE   if "1", pip-install a newer vLLM in-container before
 #                      launch (use if the .sif lacks GptOssForCausalLM)  (vazio)
@@ -28,7 +28,7 @@ export VLLM_PORT="${VLLM_PORT:-8802}"
 export MODEL="${MODEL:-openai/gpt-oss-120b}"
 export MODEL_NAME="${MODEL_NAME:-gpt-oss-120b}"
 export MODEL_GPU_MEM="${MODEL_GPU_MEM:-0.92}"
-export MODEL_MAX_LEN="${MODEL_MAX_LEN:-131072}"
+export MODEL_MAX_LEN="${MODEL_MAX_LEN:-62000}"
 export MODEL_MAX_NUM_SEQS="${MODEL_MAX_NUM_SEQS:-64}"
 # gpt-oss reasoning parser is fixed (CLAUDE.md: *gpt-oss* → openai_gptoss)
 export MODEL_REASONING_PARSER="${MODEL_REASONING_PARSER:-openai_gptoss}"
