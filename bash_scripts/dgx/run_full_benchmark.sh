@@ -75,6 +75,7 @@ auto_reasoning_parser() {
         *gpt-oss*)            echo "openai_gptoss" ;;
         *qwen3*)              echo "qwen3" ;;
         *olmo*think*|*olmo*)  echo "olmo3" ;;
+        *gemma-4*)            echo "gemma4" ;;
         *)                    echo "" ;;
     esac
 }
