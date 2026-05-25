@@ -1,11 +1,11 @@
 cd /raid/user_danielpedrozo/projects/info-gainme_dev
 
 JOBS=(
-  "configs/full/8b/|Qwen/Qwen3-8B|Qwen3-8B|0,1"
-  "configs/full/30b/cot/|Qwen/Qwen3-30B-A3B-Thinking-2507|Qwen3-30B-A3B-Thinking-2507|2,3"
-  "configs/full/30b/no_cot/|Qwen/Qwen3-30B-A3B-Instruct-2507|Qwen3-30B-A3B-Instruct-2507|0,1"
-  "configs/full/4b/cot/|Qwen/Qwen3-4B-Thinking-2507|Qwen3-4B-Thinking-2507|2,3"
-  "configs/full/4b/no_cot/|Qwen/Qwen3-4B-Instruct-2507|Qwen3-4B-Instruct-2507|0,1"
+  "configs/full/8b/|Qwen/Qwen3-8B|Qwen3-8B"
+  "configs/full/30b/cot/|Qwen/Qwen3-30B-A3B-Thinking-2507|Qwen3-30B-A3B-Thinking-2507"
+  "configs/full/30b/no_cot/|Qwen/Qwen3-30B-A3B-Instruct-2507|Qwen3-30B-A3B-Instruct-2507"
+  "configs/full/4b/cot/|Qwen/Qwen3-4B-Thinking-2507|Qwen3-4B-Thinking-2507"
+  "configs/full/4b/no_cot/|Qwen/Qwen3-4B-Instruct-2507|Qwen3-4B-Instruct-2507"
 )
 
 for j in "${JOBS[@]}"; do
@@ -18,7 +18,7 @@ for j in "${JOBS[@]}"; do
     FORCE_GPUS='$GPUS' \
     VLLM_ENGINE_READY_TIMEOUT_S=3600 \
     CONFIGS_TARGET='$CFG' \
-    srun --partition=b200n1 --gres=gpu:2 --mem=60G --time=2-00:00:00 \
+    srun --partition=b200n1 --gres=gpu:1 --mem=60G --time=2-00:00:00 \
          --output='/raid/user_danielpedrozo/projects/info-gainme_dev/logs/%x-%j.log' --job-name=info-gainme-full \
       bash bash_scripts/dgx/run_full_benchmark.sh; exec bash"
 done
