@@ -95,7 +95,10 @@ else
     exit 2
 fi
 
-EXTRA_FLAGS=""
+JUDGE_TIMEOUT="${JUDGE_TIMEOUT:-600}"
+JUDGE_REASONING_EFFORT="${JUDGE_REASONING_EFFORT:-}"
+EXTRA_FLAGS=" --timeout ${JUDGE_TIMEOUT}"
+[[ -n "${JUDGE_REASONING_EFFORT}" ]] && EXTRA_FLAGS+=" --reasoning-effort ${JUDGE_REASONING_EFFORT}"
 [[ -n "${RUN_INDEX}" ]]      && EXTRA_FLAGS+=" --run-index ${RUN_INDEX}"
 [[ -n "${SAMPLE_INDICES}" ]] && EXTRA_FLAGS+=" --sample-indices ${SAMPLE_INDICES}"
 [[ "${FORCE}" == "1" ]]      && EXTRA_FLAGS+=" --force"

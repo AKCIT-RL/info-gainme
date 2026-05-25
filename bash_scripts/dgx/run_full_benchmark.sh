@@ -100,6 +100,14 @@ export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-/raid/user_danielpedrozo/tmp/si
 export APPTAINER_TMPDIR="${APPTAINER_TMPDIR:-${SINGULARITY_TMPDIR}}"
 mkdir -p "${SINGULARITY_TMPDIR}"
 
+# Capture git state on the host (git is not installed inside Singularity).
+# These env vars are read by src/utils/git_info.py inside the container.
+export GIT_COMMIT="${GIT_COMMIT:-$(git -C "${PROJECT_DIR}" rev-parse HEAD 2>/dev/null || true)}"
+export GIT_BRANCH="${GIT_BRANCH:-$(git -C "${PROJECT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)}"
+_git_status="$(git -C "${PROJECT_DIR}" status --porcelain --untracked-files=no 2>/dev/null || true)"
+export GIT_DIRTY="${GIT_DIRTY:-$([ -n "${_git_status}" ] && echo 1 || echo 0)}"
+unset _git_status
+
 
 # ============================================
 # GPU Detection & Mode Selection

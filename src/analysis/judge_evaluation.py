@@ -160,11 +160,13 @@ def build_judge_adapter(
     api_key: str,
     temperature: Optional[float] = None,
     timeout: float = 300.0,
+    extra: Optional[dict[str, Any]] = None,
 ) -> LLMAdapter:
     """Return a carrier adapter. ``_call_judge`` builds a fresh per-call adapter
     from its config so ``reasoning_history`` is never shared across threads."""
     cfg = LLMConfig(model=model, api_key=api_key, base_url=base_url,
-                    timeout=timeout, temperature=temperature)
+                    timeout=timeout, temperature=temperature,
+                    extra=extra or {})
     return LLMAdapter(cfg, save_history=False, save_reasoning=False)
 
 

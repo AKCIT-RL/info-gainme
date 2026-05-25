@@ -56,6 +56,11 @@ auto_reasoning_parser() {
 [ -z "${JUDGE_REASONING_PARSER+x}" ] && JUDGE_REASONING_PARSER=$(auto_reasoning_parser "${JUDGE_MODEL_NAME}")
 [ "${JUDGE_REASONING_PARSER}" = "none" ] && JUDGE_REASONING_PARSER=""
 JUDGE_EXTRA_ARGS="${JUDGE_EXTRA_ARGS:-}"               # any extra vllm flags
+# HTTP client timeout per LLM call (seconds). gpt-oss-120b with reasoning can
+# take several minutes for complex turns — 600s avoids spurious timeout retries.
+JUDGE_TIMEOUT="${JUDGE_TIMEOUT:-600}"
+# gpt-oss reasoning effort: minimal|low|medium|high (empty = model default).
+JUDGE_REASONING_EFFORT="${JUDGE_REASONING_EFFORT:-}"
 
 TARGET="${TARGET:-all}"                                 # runs.csv | conv dir | "all"
 WHAT="${WHAT:-both}"                                    # oracle | pruner | both
@@ -85,6 +90,13 @@ SINGULARITY_IMAGE="/raid/user_danielpedrozo/images/vllm_openai_latest.sif"
 export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-/raid/user_danielpedrozo/tmp/singularity}"
 export APPTAINER_TMPDIR="${APPTAINER_TMPDIR:-${SINGULARITY_TMPDIR}}"
 mkdir -p "${SINGULARITY_TMPDIR}"
+
+# Capture git state on the host (git is not installed inside Singularity).
+export GIT_COMMIT="${GIT_COMMIT:-$(git -C "${PROJECT_DIR}" rev-parse HEAD 2>/dev/null || true)}"
+export GIT_BRANCH="${GIT_BRANCH:-$(git -C "${PROJECT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)}"
+_git_status="$(git -C "${PROJECT_DIR}" status --porcelain --untracked-files=no 2>/dev/null || true)"
+export GIT_DIRTY="${GIT_DIRTY:-$([ -n "${_git_status}" ] && echo 1 || echo 0)}"
+unset _git_status
 
 export VLLM_MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-32}"
 # VLLM_MAX_NUM_BATCHED_TOKENS controla o tamanho do batch de prefill por step.
@@ -263,10 +275,13 @@ SAMPLE_FLAGS=""
 EVAL_CMDS=""
 for t in "${TARGETS[@]}"; do
     EVAL_CMDS+="echo ''; echo \"[$(date '+%%H:%%M:%%S')] --target ${t}\"; "
+    _reasoning_effort_flag=""
+    [ -n "${JUDGE_REASONING_EFFORT}" ] && _reasoning_effort_flag=" --reasoning-effort ${JUDGE_REASONING_EFFORT}"
     EVAL_CMDS+="python3 scripts/judge_eval/evaluate.py --target ${t} ${TARGET_FLAG} \
         --judge-model '${JUDGE_MODEL_NAME}' \
         --servers-override '${SERVERS_OVERRIDE}' \
-        --workers ${WORKERS} --turn-workers ${TURN_WORKERS}${SAMPLE_FLAGS}; "
+        --workers ${WORKERS} --turn-workers ${TURN_WORKERS} \
+        --timeout ${JUDGE_TIMEOUT}${_reasoning_effort_flag}${SAMPLE_FLAGS}; "
 done
 EVAL_CMDS+="python3 scripts/judge_eval/aggregate_judge_results.py"
 
