@@ -64,6 +64,13 @@ export LOGS_DIR="/workspace/projects/info-gainme_dev/logs"
 mkdir -p "${PROJECT_DIR}/logs" "${PROJECT_DIR}/hf-cache" "${PROJECT_DIR}/outputs"
 cd "${PROJECT_DIR}"
 
+# Capture git state on the host (git is not installed inside Singularity).
+export GIT_COMMIT="${GIT_COMMIT:-$(git -C "${PROJECT_DIR}" rev-parse HEAD 2>/dev/null || true)}"
+export GIT_BRANCH="${GIT_BRANCH:-$(git -C "${PROJECT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)}"
+_git_status="$(git -C "${PROJECT_DIR}" status --porcelain --untracked-files=no 2>/dev/null || true)"
+export GIT_DIRTY="${GIT_DIRTY:-$([ -n "${_git_status}" ] && echo 1 || echo 0)}"
+unset _git_status
+
 echo "=========================================="
 echo "Info Gainme — External Seeker Benchmark"
 echo "$(date)"

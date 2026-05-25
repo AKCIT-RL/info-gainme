@@ -15,8 +15,12 @@ from ..utils import parse_first_json_object, ClaryLogger
 
 logger = ClaryLogger.get_logger(__name__)
 
-# Pre-compiled regex patterns for better performance
-_THINK_PATTERN = re.compile(r'<think>\n(.*?)\n</think>', re.DOTALL)
+# Pre-compiled regex patterns for better performance.
+# `\s*` em vez de `\n` literal: gemma-4 emite "<think>texto</think>resposta"
+# sem quebras de linha (visto em job 19798). Qwen/Olmo/Phi seguem usando
+# "<think>\ntexto\n</think>" — `\s*` cobre 0+ whitespace, então é backwards-
+# compatible. O `.strip()` no group(1) remove qualquer whitespace residual.
+_THINK_PATTERN = re.compile(r'<think>\s*(.*?)\s*</think>', re.DOTALL)
 _ORACLE_PATTERN = re.compile(r'\[Oracle\]\s*-\s*(.*?)(?:\n|$)')
 
 
