@@ -11,4 +11,5 @@ dependencies = [
     "openai>=2.8.1",
     "pandas>=2.3.3",
     "notebook>=7.5.0",
+    "scipy>=1.17.1",
 ]
