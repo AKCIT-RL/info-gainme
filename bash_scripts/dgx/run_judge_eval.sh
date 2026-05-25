@@ -86,6 +86,13 @@ export SINGULARITY_TMPDIR="${SINGULARITY_TMPDIR:-/raid/user_danielpedrozo/tmp/si
 export APPTAINER_TMPDIR="${APPTAINER_TMPDIR:-${SINGULARITY_TMPDIR}}"
 mkdir -p "${SINGULARITY_TMPDIR}"
 
+# Capture git state on the host (git is not installed inside Singularity).
+export GIT_COMMIT="${GIT_COMMIT:-$(git -C "${PROJECT_DIR}" rev-parse HEAD 2>/dev/null || true)}"
+export GIT_BRANCH="${GIT_BRANCH:-$(git -C "${PROJECT_DIR}" rev-parse --abbrev-ref HEAD 2>/dev/null || true)}"
+_git_status="$(git -C "${PROJECT_DIR}" status --porcelain --untracked-files=no 2>/dev/null || true)"
+export GIT_DIRTY="${GIT_DIRTY:-$([ -n "${_git_status}" ] && echo 1 || echo 0)}"
+unset _git_status
+
 export VLLM_MAX_NUM_SEQS="${VLLM_MAX_NUM_SEQS:-32}"
 # VLLM_MAX_NUM_BATCHED_TOKENS controla o tamanho do batch de prefill por step.
 # Default 16384 = mesmo do run_full_benchmark.sh (paridade); subir pra 32768
