@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=info-gainme-full
-#SBATCH --partition=h100n2
+#SBATCH --partition=b200n2
 #SBATCH --gres=gpu:1
 #SBATCH --mem=60G
 #SBATCH --time=2-00:00:00
