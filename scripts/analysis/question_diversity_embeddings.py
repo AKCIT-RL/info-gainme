@@ -255,14 +255,15 @@ def main() -> None:
             div = float(np.mean(1.0 - sim[i_idx, j_idx]))
 
         rows.append({
-            "seeker":                r["seeker"],
-            "target_base":           _target_base(r["target"]),
-            "run":                   r["target"],          # full name, e.g. city-1_run02
-            "mode":                  r["mode"],
-            "cot":                   r["cot"],
-            "domain":                r["domain"],
-            "n_questions":           n,
-            "diversity_cosine":      div,
+            "seeker":           r["seeker"],
+            "target_base":      _target_base(r["target"]),
+            "run":              r["target"],
+            "mode":             r["mode"],
+            "cot":              r["cot"],
+            "domain":           r["domain"],
+            "path":             r["path"],
+            "n_questions":      n,
+            "diversity_cosine": div,
         })
 
     df_runs = pd.DataFrame(rows)
