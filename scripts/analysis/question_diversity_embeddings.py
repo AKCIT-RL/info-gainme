@@ -214,6 +214,7 @@ def main() -> None:
                     "mode":      mode,
                     "cot":       is_cot,
                     "domain":    _domain_from_target(target),
+                    "path":      str(turns_file),
                     "questions": questions,
                 })
 
@@ -269,11 +270,12 @@ def main() -> None:
     # ── aggregate: mean ± SE across runs per (seeker, target_base, mode, cot) ──
     agg = (
         df_runs
-        .groupby(["seeker", "target_base", "mode", "cot", "domain"])["diversity_cosine"]
+        .groupby(["seeker", "target_base", "mode", "cot", "domain"])
         .agg(
-            n_runs="count",
-            diversity_mean="mean",
-            diversity_se=lambda x: x.std(ddof=1) / np.sqrt(len(x)) if len(x) > 1 else float("nan"),
+            n_runs        =("diversity_cosine", "count"),
+            diversity_mean=("diversity_cosine", "mean"),
+            diversity_se  =("diversity_cosine", lambda x: x.std(ddof=1) / np.sqrt(len(x)) if len(x) > 1 else float("nan")),
+            paths         =("path", lambda x: "|".join(sorted(x))),
         )
         .reset_index()
     )
