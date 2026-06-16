@@ -132,14 +132,20 @@ def _mode_from_exp_name(name: str) -> str:
     return m.group(1).upper() if m else "?"
 
 
-# Suffixes that mark non-canonical experiment variants — skip these dirs
+# Suffixes that always mark non-canonical variants
 _NON_CANONICAL_RE = re.compile(
-    r"(_ont|_with_prior|_with_kickoff|_ablation)($|_)", re.IGNORECASE
+    r"(_ont|_with_prior|_ablation)($|_)", re.IGNORECASE
 )
 
 
-def _is_canonical_exp(name: str) -> bool:
-    return not _NON_CANONICAL_RE.search(name)
+def _is_canonical_exp(name: str, siblings: set[str] | None = None) -> bool:
+    if _NON_CANONICAL_RE.search(name):
+        return False
+    # When a _with_kickoff version exists, it is canonical — skip the plain version.
+    if "_with_kickoff" not in name:
+        if siblings and (name + "_with_kickoff") in siblings:
+            return False   # a _with_kickoff variant exists — defer to it
+    return True
 
 
 def _is_cot_exp(name: str) -> bool:
@@ -184,10 +190,11 @@ def main() -> None:
         if seeker_slug not in canonical_seekers:
             continue
 
+        siblings = {d.name for d in model_dir.iterdir() if d.is_dir()}
         for exp_dir in sorted(model_dir.iterdir()):
             if not exp_dir.is_dir():
                 continue
-            if not _is_canonical_exp(exp_dir.name):
+            if not _is_canonical_exp(exp_dir.name, siblings):
                 continue
             mode   = _mode_from_exp_name(exp_dir.name)
             is_cot = _is_cot_exp(exp_dir.name)
