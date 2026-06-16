@@ -214,7 +214,7 @@ def main() -> None:
                     "mode":      mode,
                     "cot":       is_cot,
                     "domain":    _domain_from_target(target),
-                    "path":      str(turns_file),
+                    "path":      str(tf),
                     "questions": questions,
                 })
 
