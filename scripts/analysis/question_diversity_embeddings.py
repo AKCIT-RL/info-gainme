@@ -75,7 +75,7 @@ def _sample_targets(targets: list[str]) -> set[str]:
     return {s[i] for i in SAMPLE_INDICES if i < len(s)}
 
 
-N_RUNS = 3   # number of runs per target to collect
+N_RUNS = 2   # number of runs per target to collect (standardized across all models)
 
 
 def _build_all_samples() -> set[str]:
