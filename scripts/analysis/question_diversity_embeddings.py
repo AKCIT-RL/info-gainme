@@ -35,7 +35,7 @@ ALWAYS_COT_SLUGS: set[str] = {
 OUTPUTS_ROOT       = Path("outputs/models")
 CANONICAL_ORACLE   = "o_Qwen3-8B__p_Qwen3-8B"   # only standard oracle/pruner
 OUT_FILE           = Path("outputs/views_artigo/question_diversity_by_game.csv")
-EMBED_MODEL   = "all-MiniLM-L6-v2"
+EMBED_MODEL   = "BAAI/bge-base-en-v1.5"
 BATCH_SIZE    = 512
 
 # ── canonical seekers (from configs/full, excluding ablations) ────────────────
