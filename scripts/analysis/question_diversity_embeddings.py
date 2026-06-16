@@ -32,8 +32,9 @@ ALWAYS_COT_SLUGS: set[str] = {
     "Qwen3-30B-A3B-Thinking-2507",
 }
 
-OUTPUTS_ROOT  = Path("outputs/models")
-OUT_FILE      = Path("outputs/views_artigo/question_diversity_by_game.csv")
+OUTPUTS_ROOT       = Path("outputs/models")
+CANONICAL_ORACLE   = "o_Qwen3-8B__p_Qwen3-8B"   # only standard oracle/pruner
+OUT_FILE           = Path("outputs/views_artigo/question_diversity_by_game.csv")
 EMBED_MODEL   = "all-MiniLM-L6-v2"
 BATCH_SIZE    = 512
 
@@ -131,6 +132,16 @@ def _mode_from_exp_name(name: str) -> str:
     return m.group(1).upper() if m else "?"
 
 
+# Suffixes that mark non-canonical experiment variants — skip these dirs
+_NON_CANONICAL_RE = re.compile(
+    r"(_ont|_with_prior|_with_kickoff|_ablation)($|_)", re.IGNORECASE
+)
+
+
+def _is_canonical_exp(name: str) -> bool:
+    return not _NON_CANONICAL_RE.search(name)
+
+
 def _is_cot_exp(name: str) -> bool:
     return "_cot" in name and "_no_cot" not in name
 
@@ -168,13 +179,15 @@ def main() -> None:
     # ── collect (seeker, target, mode, questions) tuples ──────────────────────
     records: list[dict] = []
 
-    for model_dir in sorted(OUTPUTS_ROOT.glob("s_*__o_*__p_*")):
+    for model_dir in sorted(OUTPUTS_ROOT.glob(f"s_*__{CANONICAL_ORACLE}")):
         seeker_slug = model_dir.name.split("__o_")[0].removeprefix("s_")
         if seeker_slug not in canonical_seekers:
             continue
 
         for exp_dir in sorted(model_dir.iterdir()):
             if not exp_dir.is_dir():
+                continue
+            if not _is_canonical_exp(exp_dir.name):
                 continue
             mode   = _mode_from_exp_name(exp_dir.name)
             is_cot = _is_cot_exp(exp_dir.name)
