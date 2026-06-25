@@ -113,6 +113,11 @@ def get_reasoning_synthesis_prompt() -> str:
     return load_prompt("reasoning_synthesis")
 
 
+def get_belief_state_extraction_prompt() -> str:
+    """Get the belief-state extraction system prompt."""
+    return load_prompt("belief_state_extraction")
+
+
 def clear_cache() -> None:
     """Clear the prompt cache. Useful for testing or reloading prompts."""
     _PROMPT_CACHE.clear()
@@ -124,6 +129,7 @@ __all__ = [
     "get_oracle_system_prompt",
     "get_pruner_system_prompt",
     "get_reasoning_synthesis_prompt",
+    "get_belief_state_extraction_prompt",
     "clear_cache",
 ]
 

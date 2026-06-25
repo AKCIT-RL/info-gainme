@@ -69,7 +69,7 @@ Start vLLM and run all configs in one job. `CONFIGS_TARGET` is passed via `--exp
 # pasta inteira
 sbatch --partition=h100n2 --gres=gpu:2 \
   --export=ALL,MODEL1=Qwen/Qwen3-4B-Thinking-2507,MODEL1_NAME=Qwen3-4B-Thinking-2507,MODEL2=Qwen/Qwen3-8B,MODEL2_NAME=Qwen3-8B,MODE=dual,CONFIGS_TARGET=configs/full/4b/cot/ \
-  dgx/run_full_benchmark.sh
+  bash_scripts/dgx/run_full_benchmark.sh
 # config individual: aponte CONFIGS_TARGET para o .yaml específico
 ```
 
@@ -96,8 +96,8 @@ Key overridable vars (all via `--export=ALL,KEY=VAL,...`):
 
 **External seeker** (seeker endpoint already in `configs/servers.yaml`): brings up only oracle/pruner locally.
 ```bash
-sbatch dgx/run_external_seeker_benchmark.sh configs/full/235b/no_cot/
-sbatch dgx/run_external_seeker_benchmark.sh configs/full/llama-70b/no_cot/
+sbatch bash_scripts/dgx/run_external_seeker_benchmark.sh configs/full/235b/no_cot/
+sbatch bash_scripts/dgx/run_external_seeker_benchmark.sh configs/full/llama-70b/no_cot/
 ```
 To add a new external-seeker model: (1) add endpoint to `configs/servers.yaml`; (2) create configs in `configs/full/<model>/no_cot/` (and `cot/` if the model supports thinking); (3) submit as above.
 
@@ -105,16 +105,16 @@ Monitor with: `watch squeue -u $USER` and `tail -f logs/info-gainme-full-<JOBID>
 
 **Manual vLLM + screen (alternative):**
 ```bash
-sbatch dgx/run_vllm_single_model.sh          # single model (Singularity)
-sbatch dgx/run_vllm_multimodel.sh            # two models on same node (Singularity)
-sbatch dgx/run_vllm_conda.sh                 # single model via Conda (not Singularity; includes SSH tunnel instructions for local access)
-screen -dmS benchmarks bash -c 'bash dgx/run_benchmarks_screen.sh configs/full/8b/ 2>&1 | tee logs/screen-8b-all.out; exec bash'
+sbatch bash_scripts/dgx/run_vllm_single_model.sh          # single model (Singularity)
+sbatch bash_scripts/dgx/run_vllm_multimodel.sh            # two models on same node (Singularity)
+sbatch bash_scripts/dgx/run_vllm_conda.sh                 # single model via Conda (not Singularity; includes SSH tunnel instructions for local access)
+screen -dmS benchmarks bash -c 'bash bash_scripts/dgx/run_benchmarks_screen.sh configs/full/8b/ 2>&1 | tee logs/screen-8b-all.out; exec bash'
 ```
 
 **SLURM-only benchmarks** (when vLLM is already running):
 ```bash
-bash dgx/run_benchmarks_slurm.sh configs/full/8b/            # folder
-bash dgx/run_benchmarks_slurm.sh configs/full/8b/foo.yaml    # single config
+bash bash_scripts/dgx/run_benchmarks_slurm.sh configs/full/8b/            # folder
+bash bash_scripts/dgx/run_benchmarks_slurm.sh configs/full/8b/foo.yaml    # single config
 ```
 
 **Single config locally (for testing):**
@@ -137,7 +137,7 @@ A SLURM job in `R` state ≠ job producing runs. Always confirm with this checkl
 **Common failure patterns:**
 - `runs.csv` only header, mtime progressing every ~7h → `MODEL_NAME` mismatch; each config exhausts 50 retries × ~60s backoff then moves on. Cancel and resubmit with `MODEL_NAME` matching YAML exactly.
 - `runs.csv` mtime frozen for hours while job still `R` → vLLM died silently but the bash script keeps polling. Check the vLLM `.log`, likely OOM or a downstream dependency (the other vLLM) crashed.
-- Oracle/pruner port collision between consecutive JOB_IDs → was the old `%1000` bug, fixed to `%500 * 10 + ss probe`. If you see `"model X does not exist"` in the seeker's log pointing to the OTHER job's port, the fix didn't take effect — verify `dgx/run_full_benchmark.sh` is synced.
+- Oracle/pruner port collision between consecutive JOB_IDs → was the old `%1000` bug, fixed to `%500 * 10 + ss probe`. If you see `"model X does not exist"` in the seeker's log pointing to the OTHER job's port, the fix didn't take effect — verify `bash_scripts/dgx/run_full_benchmark.sh` is synced.
 - Pruner returning invalid JSON (Nemotron/Olmo sometimes emit control chars) → `Pruner JSON parse error` in logs; benchmark skips pruning that turn (`active=N, pruned=0`). Run still completes but produces degenerate data (30 turns, IG=0). Consider changing oracle/pruner model.
 
 **Auditing what's left across nodes:**
@@ -154,15 +154,15 @@ Run in order after benchmarks finish:
 
 **Step 1: Compute experiment metrics**
 ```bash
-bash dgx/run_analyze_results.sh                         # all experiments in outputs/
-bash dgx/run_analyze_results.sh outputs/models/.../runs.csv  # specific CSV
+bash bash_scripts/dgx/run_analyze_results.sh                         # all experiments in outputs/
+bash bash_scripts/dgx/run_analyze_results.sh outputs/models/.../runs.csv  # specific CSV
 ```
 Outputs: `summary.json` (metrics: win rate, avg IG, turns), `variance.json` (per-target variance), and `outputs/unified_experiments.csv` (all experiments merged).
 
 **Step 2: Synthesize reasoning traces** (CoT experiments only)
 ```bash
-bash dgx/run_synthesize_traces.sh                                          # use gpt-4o-mini
-MODEL=Qwen3-8B BASE_URL=http://localhost:8020/v1 bash dgx/run_synthesize_traces.sh  # local model
+bash bash_scripts/dgx/run_synthesize_traces.sh                                          # use gpt-4o-mini
+MODEL=Qwen3-8B BASE_URL=http://localhost:8020/v1 bash bash_scripts/dgx/run_synthesize_traces.sh  # local model
 ```
 For each CoT game, extracts `<think>` blocks from `seeker.json` and synthesizes structured reasoning (options considered, choice rationale) via LLM. Idempotent — skips if `seeker_traces.json` exists. Output: `seeker_traces.json` per conversation.
 
@@ -170,8 +170,8 @@ Parallelism is two-level: `WORKERS` (default 8) = conversations in parallel per 
 
 **Step 3: Analyze reasoning traces**
 ```bash
-bash dgx/run_analyze_traces.sh                  # default outputs/
-bash dgx/run_analyze_traces.sh /custom/outputs  # custom directory
+bash bash_scripts/dgx/run_analyze_traces.sh                  # default outputs/
+bash bash_scripts/dgx/run_analyze_traces.sh /custom/outputs  # custom directory
 ```
 Aggregates all `seeker_traces.json` (CoT only) to generate `reasoning_traces_analysis.json` with question frequency, decision patterns, and per-model aggregations.
 
@@ -235,7 +235,7 @@ No-CoT configs omit both fields entirely.
 - **Qwen3** (Instruct/Thinking): `enable_thinking: true|false` toggles native CoT.
 - **gpt-oss** (20b, 120b): no on/off — use `extra_body.reasoning_effort: "minimal"|"low"|"medium"|"high"`. `enable_thinking` is a no-op.
 - **Olmo-Think, Phi-4-reasoning, Nemotron-Cascade-Thinking**: always reason (recipe-baked). `enable_thinking` is a no-op; just set `use_reasoning: true` so the adapter captures the `<think>` blocks.
-- vLLM `--reasoning-parser` is auto-detected by `dgx/run_full_benchmark.sh::auto_reasoning_parser` from `MODEL_NAME` (`*gpt-oss*`→`openai_gptoss`, `*qwen3*`→`qwen3`, `*olmo*`→`olmo3`; others omit). Override with `MODEL{1,2}_REASONING_PARSER=name|none`.
+- vLLM `--reasoning-parser` is auto-detected by `bash_scripts/dgx/run_full_benchmark.sh::auto_reasoning_parser` from `MODEL_NAME` (`*gpt-oss*`→`openai_gptoss`, `*qwen3*`→`qwen3`, `*olmo*`→`olmo3`; others omit). Override with `MODEL{1,2}_REASONING_PARSER=name|none`.
 
 **Observability modes:**
 - `FULLY_OBSERVABLE` — Seeker sees the full candidate list each turn
@@ -259,7 +259,7 @@ All non-ablation configs in `configs/full/` follow these defaults — keep new c
 
 ### Critical: `MODEL_NAME` ↔ `seeker.model` exact match
 
-The `MODEL1_NAME`/`MODEL2_NAME` env vars passed to `dgx/run_full_benchmark.sh` **must equal** the `seeker.model`/`oracle.model`/`pruner.model` strings inside the target YAMLs **verbatim** (case-sensitive). Mismatches don't error — they fall through `config_loader.py` to `OPENAI_API_KEY`, which hits `api.openai.com` and silently 404-loops for hours. Common pitfalls:
+The `MODEL1_NAME`/`MODEL2_NAME` env vars passed to `bash_scripts/dgx/run_full_benchmark.sh` **must equal** the `seeker.model`/`oracle.model`/`pruner.model` strings inside the target YAMLs **verbatim** (case-sensitive). Mismatches don't error — they fall through `config_loader.py` to `OPENAI_API_KEY`, which hits `api.openai.com` and silently 404-loops for hours. Common pitfalls:
 
 - **HF canonical casing for Olmo:** repo uses `Olmo-3-7B-Think` / `Olmo-3-7B-Instruct` (lowercase `olm`). Earlier we tried uppercase `OLMo` and reverted in commit `ed76a7d`. **Do not change again.**
 - **Org prefix** (`Qwen/`, `meta-llama/`, `microsoft/`) belongs in `MODEL1` (HF download path), **not** `MODEL1_NAME` (served-model-name) — except for some configs (e.g., `235b/no_cot/*.yaml` use `"Qwen/Qwen3-235B-A22B-Instruct-2507-FP8"` as the served name on purpose).
@@ -322,7 +322,7 @@ scripts/
   data_prep/                      ← dataset-creation helpers
     prepare_diseases_csv.py
     extract_top_cities_by_population.py
-  hf/                             ← HuggingFace dataset sync (see also dgx/ shell wrappers)
+  hf/                             ← HuggingFace dataset sync (see also bash_scripts/dgx/ shell wrappers)
     download_from_hf.py
     upload_to_hf.py
   maintenance/                    ← runs.csv repair / cleanup utilities
@@ -351,7 +351,7 @@ scripts/
     flatten_question_classifications.py
 ```
 
-Note: the `dgx/` shell wrappers were updated to point at the current `scripts/<subfolder>/` layout.
+Note: the `bash_scripts/dgx/` shell wrappers were updated to point at the current `scripts/<subfolder>/` layout.
 
 **Key flow:** `benchmark_runner.py` / `human_benchmark_runner.py` → `BenchmarkRunner.run()` → per game: `Orchestrator.from_target()` → loop: Seeker asks → Oracle answers → Pruner prunes → entropy computed → `TurnState` appended → results written to `runs.csv`.
 
@@ -362,6 +362,15 @@ Note: the `dgx/` shell wrappers were updated to point at the current `scripts/<s
 **Geo vs flat domains:** The geo domain uses `KnowledgeGraph` (hierarchical tree: region→subregion→country→state→city). When all cities under a parent are pruned, the parent is also pruned recursively (`apply_pruning` walks up via `has_child`/`contains` edges). Objects and diseases use the flat `CandidatePool` instead.
 
 **Question-choice evaluation** (post-hoc, CoT only): `scripts/reasoning_traces/evaluate_all_seeker_choices.py` reads a `runs.csv`, finds conversations with `seeker_traces.json`, then for each turn re-runs Oracle+Pruner on every question the Seeker considered to compute counterfactual info gains. Results saved as `question_evaluation.json` per conversation and `question_evaluations_summary.json` per experiment. This pipeline is read-only — it never modifies turns or conversation files.
+
+## Code conventions
+
+(From `.cursor/rules/` — keep new code aligned with the existing style.)
+
+- **Naming:** `snake_case` for methods/attributes/variables, `PascalCase` for classes (`KnowledgeGraph`, `SeekerAgent`), `UPPER_CASE` for enum members (`FULLY_OBSERVABLE`). Google-style docstrings; static typing (`typing` + `dataclasses` for data models). Prefer early returns / guard clauses; never `except: pass`; no prints in library code (use `logging_config.py`).
+- **`LLMAdapter`:** integrates directly with the OpenAI client lib (general API or vLLM's OpenAI-compatible endpoint). It holds only `history` state plus thin utilities (`append_history`, `reset_history`) — don't add wrapper methods that re-implement OpenAI primitives.
+- **Stateful agents:** each agent (`SeekerAgent`, `OracleAgent`, `PrunerAgent`) owns its own `LLMAdapter` instance — state lives per-agent by reference, not in a shared client.
+- **Keep it small:** few files, small APIs, minimal dependencies; move notebook logic into `src/` modules once it grows.
 
 ## Utility scripts
 
@@ -436,15 +445,15 @@ Each DGX node has its own `/raid` filesystem — the project dir, `outputs/`, `h
 # H100 (daniel, partition h100n2)
 sbatch --partition=h100n2 --gres=gpu:2 \
   --export=ALL,MODEL1=Qwen/Qwen3-4B-Thinking-2507,MODEL1_NAME=Qwen3-4B-Thinking-2507,MODEL2=Qwen/Qwen3-8B,MODEL2_NAME=Qwen3-8B,MODE=dual,CONFIGS_TARGET=configs/full/4b/cot/ \
-  dgx/run_full_benchmark.sh
+  bash_scripts/dgx/run_full_benchmark.sh
 
 # B200 (daniel, partition b200n1 — CUDA graphs auto-enabled)
 sbatch --partition=b200n1 --gres=gpu:2 \
   --export=ALL,VLLM_ENGINE_READY_TIMEOUT_S=3600,MODEL1=allenai/Olmo-3.1-32B-Think,MODEL1_NAME=Olmo-3.1-32B-Think,MODEL2=Qwen/Qwen3-8B,MODEL2_NAME=Qwen3-8B,MODE=dual,CONFIGS_TARGET=configs/full/olmo3-32b/cot/ \
-  dgx/run_full_benchmark.sh
+  bash_scripts/dgx/run_full_benchmark.sh
 ```
 
-Large (30B+) models benefit from `VLLM_ENGINE_READY_TIMEOUT_S=3600` to cover the HuggingFace download + engine core init. Very large models (64GB+ weights) may need dual-GPU with tensor parallelism (`--tensor-parallel-size` — not currently exposed by `run_full_benchmark.sh`; use `dgx/run_vllm_single_model.sh` instead or add the flag manually).
+Large (30B+) models benefit from `VLLM_ENGINE_READY_TIMEOUT_S=3600` to cover the HuggingFace download + engine core init. Very large models (64GB+ weights) may need dual-GPU with tensor parallelism (`--tensor-parallel-size` — not currently exposed by `run_full_benchmark.sh`; use `bash_scripts/dgx/run_vllm_single_model.sh` instead or add the flag manually).
 
 ## Running as another user via `asjulia` alias
 
@@ -458,7 +467,7 @@ It runs a command as `user_juliadollis` via local SSH. Julia has read access to 
 
 Usage pattern (Claude Code can invoke this via Bash):
 ```bash
-bash -ic 'asjulia "cd /raid/user_danielpedrozo/projects/info-gainme_dev; sbatch --partition=h100n3 --gres=gpu:2 --export=ALL,...,CONFIGS_TARGET=... dgx/run_full_benchmark.sh"'
+bash -ic 'asjulia "cd /raid/user_danielpedrozo/projects/info-gainme_dev; sbatch --partition=h100n3 --gres=gpu:2 --export=ALL,...,CONFIGS_TARGET=... bash_scripts/dgx/run_full_benchmark.sh"'
 ```
 
 Gotchas:
@@ -509,7 +518,7 @@ rsync -av --exclude='outputs' --exclude='logs' --exclude='hf-cache' --exclude='.
 ssh 10.100.0.113 'cd /raid/user_danielpedrozo/projects/info-gainme_dev; git fetch origin; git reset --hard origin/main'
 ```
 
-**Outputs sync (`dgx/sync_outputs.sh`)** uses **`rsync --update` bidirectionally** (both pull and push) — `--update` only overwrites when the source mtime is newer, so it's safe to run during active benchmarks. Calling pull-then-push converges all nodes to the latest version of each file without destruction. **Never use `--delete` or `--ignore-existing`** — both can lose in-flight benchmark data.
+**Outputs sync (`bash_scripts/dgx/sync_outputs.sh`)** uses **`rsync --update` bidirectionally** (both pull and push) — `--update` only overwrites when the source mtime is newer, so it's safe to run during active benchmarks. Calling pull-then-push converges all nodes to the latest version of each file without destruction. **Never use `--delete` or `--ignore-existing`** — both can lose in-flight benchmark data.
 
 **Code sync via git** (preferred over rsync for code+configs): commit local changes locally, push to origin, then on each node:
 ```bash
@@ -532,7 +541,7 @@ If the local stash held something you actually wanted, replace `git stash drop` 
 
 ## Running on the Docker node (dgx-A100)
 
-The Docker node has no SLURM — use `dgx/run_full_benchmark_docker.sh` instead of `run_full_benchmark.sh`. It starts vLLM via `docker run` (image `vllm/vllm-openai:latest`) and the benchmark via another container.
+The Docker node has no SLURM — use `bash_scripts/dgx/run_full_benchmark_docker.sh` instead of `run_full_benchmark.sh`. It starts vLLM via `docker run` (image `vllm/vllm-openai:latest`) and the benchmark via another container.
 
 **Connect:** `ssh dgx-A100` (user `temp_daniel`)
 
@@ -559,7 +568,7 @@ screen -dmS "mymodel-gpu0" env \
   VLLM_ENFORCE_EAGER=false \
   GPUS=0 \
   CONFIGS_TARGET=configs/full/0.6b/geo_160_0.6b_io_cot.yaml \
-  bash dgx/run_full_benchmark_docker.sh
+  bash bash_scripts/dgx/run_full_benchmark_docker.sh
 ```
 
 **Run multiple configs in parallel (one GPU each):**
@@ -570,7 +579,7 @@ for gpu in 0 2; do
   cfg=${SPECS[$gpu]}
   screen -dmS "run-gpu${gpu}" env MODE=seeker_only MODEL1=Qwen/Qwen3-0.6B MODEL1_NAME=Qwen3-0.6B \
     MODEL2_NAME=Qwen3-8B VLLM_ENFORCE_EAGER=false GPUS="$gpu" CONFIGS_TARGET="$cfg" \
-    bash dgx/run_full_benchmark_docker.sh
+    bash bash_scripts/dgx/run_full_benchmark_docker.sh
 done
 ```
 
