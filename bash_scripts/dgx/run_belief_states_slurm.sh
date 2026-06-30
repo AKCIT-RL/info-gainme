@@ -43,7 +43,7 @@ export MODEL_NAME="${MODEL_NAME:-google/gemma-4-31B-it}"
 # contexto >=20k seria preciso 2 GPUs (--gres=gpu:2,NUM_GPUS=2) com tensor
 # parallel. O prompt (system + historico Q&A + <think>) raramente passa de 12k.
 export MODEL_GPU_MEM="${MODEL_GPU_MEM:-0.95}"
-export MODEL_MAX_LEN="${MODEL_MAX_LEN:-12000}"
+export MODEL_MAX_LEN="${MODEL_MAX_LEN:-24000}"
 export MODEL_MAX_NUM_SEQS="${MODEL_MAX_NUM_SEQS:-32}"
 export API_KEY="${API_KEY:-capacete}"
 export NUM_GPUS="${NUM_GPUS:-1}"
