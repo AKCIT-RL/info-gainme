@@ -38,8 +38,12 @@ VLLM_IMAGE="${VLLM_IMAGE:-${HOST_RAID}/images/vllm_openai_nightly.sif}"
 export VLLM_PORT="${VLLM_PORT:-8431}"
 export MODEL="${MODEL:-google/gemma-4-31B-it}"
 export MODEL_NAME="${MODEL_NAME:-google/gemma-4-31B-it}"
-export MODEL_GPU_MEM="${MODEL_GPU_MEM:-0.90}"
-export MODEL_MAX_LEN="${MODEL_MAX_LEN:-32000}"
+# Gemma-4-31B (~62GB em bf16) num unico H100 deixa pouca VRAM p/ KV cache:
+# ~12.5k tokens de contexto a gpu-mem 0.95 (este e o teto de 1 GPU). Para
+# contexto >=20k seria preciso 2 GPUs (--gres=gpu:2,NUM_GPUS=2) com tensor
+# parallel. O prompt (system + historico Q&A + <think>) raramente passa de 12k.
+export MODEL_GPU_MEM="${MODEL_GPU_MEM:-0.95}"
+export MODEL_MAX_LEN="${MODEL_MAX_LEN:-12000}"
 export MODEL_MAX_NUM_SEQS="${MODEL_MAX_NUM_SEQS:-32}"
 export API_KEY="${API_KEY:-capacete}"
 export NUM_GPUS="${NUM_GPUS:-1}"
