@@ -58,7 +58,7 @@ CANONICAL_SEEKER_SLUGS: set[str] = {
     "Nemotron-Cascade-8B",
 }
 
-_NON_CANONICAL_RE = re.compile(r"(_ont|_with_prior|_ablation)($|_)", re.IGNORECASE)
+_NON_CANONICAL_RE = re.compile(r"(_ont|_ablation)($|_)", re.IGNORECASE)
 
 # Per-experiment files to include (relative to the experiment dir)
 EXP_FILES = [
@@ -129,10 +129,14 @@ def collect_upload_pairs(
             continue
 
         for exp_dir in _canonical_experiments(model_dir):
+            # strip _with_kickoff suffix in the HF repo path
+            exp_name_hf = exp_dir.name.removesuffix("_with_kickoff")
             for fname in EXP_FILES:
                 fpath = exp_dir / fname
                 if fpath.exists():
-                    repo_path = str(fpath.relative_to(outputs_dir))
+                    repo_path = str(
+                        Path("models") / model_dir.name / exp_name_hf / fname
+                    )
                     pairs.append((fpath, repo_path))
 
     return pairs
