@@ -181,10 +181,14 @@ def record_turns(rec: dict[str, Any]) -> tuple[list[dict[str, Any]], Optional[fl
     pool_labels = turns[0].get("omega_labels") or []
     pool_index = {_norm(lbl): lbl for lbl in pool_labels}
     target_label = rec.get("target_label")
-    out = [
-        turn_metrics(t.get("belief", {}), t.get("omega_labels") or [], pool_index, target_label)
-        for t in turns
-    ]
+    out = []
+    for i, t in enumerate(turns):
+        m = turn_metrics(t.get("belief", {}), t.get("omega_labels") or [], pool_index, target_label)
+        # Each prior turn answers one question, so by turn position i there are i
+        # established constraints; completeness = how many the model still restates.
+        m["turn_position"] = i
+        m["constraint_completeness"] = (m["n_constraints"] / i) if i > 0 else None
+        out.append(m)
     igs = [t.get("info_gain") for t in turns if isinstance(t.get("info_gain"), (int, float))]
     ig_per_turn = sum(igs) / len(igs) if igs else None
     return out, ig_per_turn
@@ -205,6 +209,8 @@ def _aggregate_group(recs: list[dict[str, Any]]) -> dict[str, Any]:
     # are nested within conversations, so they are not independent).
     conv: dict[str, list[float]] = defaultdict(list)
     pairs: list[tuple[float, float]] = []  # (conv mean precision, conv IG/turn)
+    completeness_turns: list[float] = []   # n_constraints / turn_position (pooled)
+    constr_turn_corrs: list[float] = []    # per-conv corr(n_constraints, turn_position)
 
     n_turns = 0
     for rec in recs:
@@ -212,6 +218,7 @@ def _aggregate_group(recs: list[dict[str, Any]]) -> dict[str, Any]:
         c_enum, c_constr, c_any = [], [], []
         c_named, c_ncon, c_abs, c_sq = [], [], [], []
         c_prec, c_recall, c_jac, c_drop = [], [], [], []
+        c_comp, cc_xs, cc_ys = [], [], []
         for m in tms:
             n_turns += 1
             enum_flags.append(1.0 if m["used_enum"] else 0.0); c_enum.append(1.0 if m["used_enum"] else 0.0)
@@ -226,6 +233,11 @@ def _aggregate_group(recs: list[dict[str, Any]]) -> dict[str, Any]:
             if isinstance(m["count_abs_error"], (int, float)):
                 count_abs_errs.append(m["count_abs_error"]); c_abs.append(m["count_abs_error"])
                 count_sq_errs.append(m["count_sq_error"]); c_sq.append(m["count_sq_error"])
+            # Constraint accumulation: completeness ratio + (count, position) pairs.
+            if isinstance(m["constraint_completeness"], (int, float)):
+                completeness_turns.append(m["constraint_completeness"])
+                c_comp.append(m["constraint_completeness"])
+            cc_xs.append(m["turn_position"]); cc_ys.append(m["n_constraints"])
             # Quality only defined when pool-matched named candidates exist.
             if isinstance(m["precision"], (int, float)):
                 prec_turns.append(m["precision"]); c_prec.append(m["precision"])
@@ -233,6 +245,12 @@ def _aggregate_group(recs: list[dict[str, Any]]) -> dict[str, Any]:
                     recall_turns.append(m["recall"]); c_recall.append(m["recall"])
                 if isinstance(m["jaccard"], (int, float)):
                     jaccard_turns.append(m["jaccard"]); c_jac.append(m["jaccard"])
+        # Per-conversation correlation between #constraints and turn position.
+        cr, _ = _pearson(cc_xs, cc_ys)
+        if cr is not None:
+            constr_turn_corrs.append(cr)
+        if c_comp:
+            conv["constraint_completeness"].append(_mean(c_comp))
         # One value per conversation (its own mean) feeds the SE.
         if c_any:
             conv["belief_tracking_rate"].append(_mean(c_any))
@@ -274,6 +292,10 @@ def _aggregate_group(recs: list[dict[str, Any]]) -> dict[str, Any]:
         "n_constraints_mean": _mean(n_constr_turns),
         "n_constraints_se": _se(conv["n_constraints_mean"]),
         "n_constraints_median": _median(n_constr_turns),
+        # Constraint accumulation (each prior turn answers one question -> +1 constraint)
+        "constraint_completeness": _mean(completeness_turns),
+        "constraint_completeness_se": _se(conv["constraint_completeness"]),
+        "constraint_turn_corr": _mean(constr_turn_corrs),
         # Size-estimate error of stated remaining count vs |Omega_t|
         "n_turns_with_count": len(count_abs_errs),
         "count_mae": _mean(count_abs_errs),
@@ -327,6 +349,8 @@ _CSV_COLS = [
     # Belief size
     "n_named_mean", "n_named_se", "n_named_median",
     "n_constraints_mean", "n_constraints_se", "n_constraints_median",
+    # Constraint accumulation over turns
+    "constraint_completeness", "constraint_completeness_se", "constraint_turn_corr",
     # Size-estimate error of stated remaining count vs |Omega_t|
     "n_turns_with_count", "count_mae", "count_mae_se", "count_mse", "count_rmse",
     # Construct 2: belief vs Omega_t (Jaccard, decomposed into precision/recall)
