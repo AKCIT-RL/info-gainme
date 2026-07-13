@@ -4,7 +4,7 @@
 Selects only canonical experiments:
   - Oracle/pruner = Qwen3-8B  (model dir contains o_Qwen3-8B__p_Qwen3-8B)
   - Seeker in the 10 canonical paper models
-  - Experiment name free of _ont / _with_prior / _ablation
+  - Experiment name free of _ont / _ablation (_with_prior included)
   - When a _with_kickoff variant exists, prefers it; skips the plain version
 
 Per-experiment files uploaded (conversations/ tree excluded — zip only):
