@@ -17,11 +17,22 @@ Per-experiment files uploaded (conversations/ tree excluded — zip only):
 Top-level extras uploaded:
   outputs/views_artigo/*.csv  → views_artigo/
 
+Run ``scripts/hf/zip_experiments.py`` first — conversations.zip must exist.
+
+Files are grouped into batched commits (HF caps ~128 commits/hour; one commit
+per file gets 429-throttled part-way through). Re-running is safe: files already
+present in the repo are skipped.
+
+Requires HF_TOKEN. ``python-dotenv`` is optional and often absent, so export the
+env yourself rather than relying on the .env being auto-loaded:
+
+    set -a && . ./.env && set +a
+
 Usage:
     python scripts/hf/upload_runs_hf.py
     python scripts/hf/upload_runs_hf.py --repo-id akcit-rl/infogainme-runs
     python scripts/hf/upload_runs_hf.py --dry-run
-    python scripts/hf/upload_runs_hf.py --outputs-dir /raid/.../outputs --workers 8
+    python scripts/hf/upload_runs_hf.py --outputs-dir /raid/.../outputs --batch-size 40
 """
 from __future__ import annotations
 
@@ -30,7 +41,6 @@ import logging
 import os
 import re
 import sys
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 logging.getLogger("huggingface_hub").setLevel(logging.ERROR)
@@ -144,37 +154,51 @@ def collect_upload_pairs(
 
 # ── upload ────────────────────────────────────────────────────────────────────
 
-def _upload_one(
+def _commit_batch(
     api,
-    local_path: Path,
-    repo_path: str,
+    batch: list[tuple[Path, str]],
     repo_id: str,
-    attempt: int = 3,
-) -> tuple[str, bool, str]:
-    """Upload a single file. Returns (repo_path, success, message)."""
+    message: str,
+    attempts: int = 5,
+) -> tuple[bool, str]:
+    """Commit one batch of files in a SINGLE commit. Returns (success, message).
+
+    HF caps repository commits at ~128/hour. One commit per file blows through
+    that after ~250 files (HTTP 429), so files are grouped per commit instead.
+    """
     import time
-    for i in range(attempt):
+
+    from huggingface_hub import CommitOperationAdd
+
+    ops = [
+        CommitOperationAdd(path_in_repo=repo_path, path_or_fileobj=str(local))
+        for local, repo_path in batch
+    ]
+    for i in range(attempts):
         try:
-            api.upload_file(
-                path_or_fileobj=str(local_path),
-                path_in_repo=repo_path,
+            api.create_commit(
                 repo_id=repo_id,
                 repo_type="dataset",
+                operations=ops,
+                commit_message=message,
             )
-            return repo_path, True, "ok"
+            return True, "ok"
         except Exception as exc:
-            if i < attempt - 1:
-                time.sleep(10 * (i + 1))
-            else:
-                return repo_path, False, str(exc)
-    return repo_path, False, "unknown"
+            text = str(exc)
+            if i == attempts - 1:
+                return False, text
+            # 429 needs a long cooldown; the commit budget refills hourly.
+            wait = 300 * (i + 1) if ("429" in text or "rate limit" in text.lower()) else 15 * (i + 1)
+            print(f"  retry in {wait}s ({text[:120]})", flush=True)
+            time.sleep(wait)
+    return False, "unknown"
 
 
 def upload(
     pairs: list[tuple[Path, str]],
     repo_id: str,
     token: str,
-    workers: int,
+    batch_size: int,
     dry_run: bool,
 ) -> None:
     total_bytes = sum(p.stat().st_size for p, _ in pairs)
@@ -197,22 +221,33 @@ def upload(
     except Exception as exc:
         print(f"Warning: could not create/verify repo: {exc}", file=sys.stderr)
 
-    print(f"Uploading to {repo_id} with {workers} workers…\n")
+    # Resume: skip files already present in the repo.
+    try:
+        existing = set(api.list_repo_files(repo_id=repo_id, repo_type="dataset"))
+    except Exception:
+        existing = set()
+    todo = [(l, r) for l, r in pairs if r not in existing]
+    skipped = len(pairs) - len(todo)
+    if skipped:
+        print(f"Resume: {skipped} already in repo, {len(todo)} left.")
+    if not todo:
+        print(f"\nNothing to do. Dataset: https://huggingface.co/datasets/{repo_id}")
+        return
+
+    batches = [todo[i:i + batch_size] for i in range(0, len(todo), batch_size)]
+    print(f"Uploading {len(todo)} files in {len(batches)} commits "
+          f"({batch_size} files/commit)…\n", flush=True)
+
     ok = failed = 0
-    with ThreadPoolExecutor(max_workers=workers) as pool:
-        futures = {
-            pool.submit(_upload_one, api, local, repo, repo_id): repo
-            for local, repo in pairs
-        }
-        for i, fut in enumerate(as_completed(futures), 1):
-            repo_path, success, msg = fut.result()
-            if success:
-                ok += 1
-                if ok % 50 == 0 or i == len(pairs):
-                    print(f"  [{i}/{len(pairs)}] {ok} ok, {failed} failed")
-            else:
-                failed += 1
-                print(f"  FAIL [{i}/{len(pairs)}] {repo_path}: {msg}")
+    for n, batch in enumerate(batches, 1):
+        msg = f"Upload canonical runs ({n}/{len(batches)})"
+        success, err = _commit_batch(api, batch, repo_id, msg)
+        if success:
+            ok += len(batch)
+            print(f"  [commit {n}/{len(batches)}] {ok}/{len(todo)} files uploaded", flush=True)
+        else:
+            failed += len(batch)
+            print(f"  FAIL commit {n}/{len(batches)}: {err[:200]}", flush=True)
 
     print(f"\nDone. {ok} uploaded, {failed} failed.")
     if ok:
@@ -228,8 +263,9 @@ def main() -> int:
     p.add_argument("--outputs-dir", type=Path, default=Path("outputs"))
     p.add_argument("--token", default=None,
                    help="HF write token (default: HF_TOKEN env var)")
-    p.add_argument("--workers", type=int, default=4,
-                   help="Parallel upload threads (default: 4)")
+    p.add_argument("--batch-size", type=int, default=40,
+                   help="Files per commit (default: 40). HF caps ~128 commits/hour, "
+                        "so one commit per file gets 429-throttled.")
     p.add_argument("--dry-run", action="store_true",
                    help="Show what would be uploaded without uploading")
     args = p.parse_args()
@@ -263,7 +299,7 @@ def main() -> int:
     for model, n in sorted(model_counts.items()):
         print(f"  {model}  ({n} files)")
 
-    upload(pairs, args.repo_id, token, args.workers, args.dry_run)
+    upload(pairs, args.repo_id, token, args.batch_size, args.dry_run)
     return 0
 
 
