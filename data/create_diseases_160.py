@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate data/diseases/diseases_full_160.csv for benchmark experiments.
+"""Generate data/diseases/diseases_160.csv for benchmark experiments.
 
 Randomly samples 160 diseases from diseases_full.csv (773 available).
 Uses a fixed random seed for reproducibility.
@@ -14,7 +14,7 @@ import pandas as pd
 from pathlib import Path
 
 SRC  = Path("/workspace/projects/info-gainme_dev/data/diseases/diseases_full.csv")
-OUT  = Path("/workspace/projects/info-gainme_dev/data/diseases/diseases_full_160.csv")
+OUT  = Path("/workspace/projects/info-gainme_dev/data/diseases/diseases_160.csv")
 N    = 160
 SEED = 42
 
